@@ -1,8 +1,21 @@
 # Slackbot
 
-Design specification for controlling self-hosted Dagster from Slack using an existing FastAPI application in the same Kubernetes cluster.
+A Slack operations bot for self-hosted Dagster, controlled through a FastAPI application in the same Kubernetes cluster.
 
-**Status: design v0.3.** This repository contains the specification; runnable bot code and deployment manifests are not implemented yet.
+**Status: OpenSpec planning complete; implementation pending.** The repository contains the proposal, six capability specs, detailed HLD/LLD and 56 unchecked implementation tasks.
+
+## OpenSpec entry points
+
+| Document | Purpose |
+|---|---|
+| [Proposal](openspec/changes/add-dagster-slackbot/proposal.md) | Why, scope and capability inventory |
+| [Capability specs](openspec/changes/add-dagster-slackbot/specs/) | Required behavior with WHEN/THEN scenarios |
+| [Design](openspec/changes/add-dagster-slackbot/design.md) | Architecture, decisions, trade-offs and complete technical detail |
+| [Tasks](openspec/changes/add-dagster-slackbot/tasks.md) | Implementation checklist and verification outcomes |
+| [Workflow guide](openspec/README.md) | Tooling, validation and lifecycle conventions |
+| [Project configuration](openspec/config.yaml) | Shared context and artifact rules |
+
+The active change is `add-dagster-slackbot`, using the built-in `spec-driven` schema. Planned requirements are ADDED deltas in that change. `openspec/specs/` is intentionally empty until delivery and normal archive/sync; no implemented baseline is claimed.
 
 ## Recommended architecture
 
@@ -21,19 +34,13 @@ flowchart TD
   D --> R
 ```
 
-FastAPI calls the existing Dagster webserver through its Kubernetes Service. For example, after substituting the actual Service name, namespace, cluster domain, port and authentication:
+Each bot pod runs one Uvicorn process with async Slack SDK, HTTPX and Psycopg clients plus supervised durable-work loops. FastAPI calls the existing private Dagster Service; Dagster owns job execution. Use existing PostgreSQL infrastructure with a dedicated bot database/role.
 
-```text
-DAGSTER_GRAPHQL_URL=http://dagster-webserver.dagster.svc.cluster.local:3000/graphql
-```
-
-Each bot pod runs one Uvicorn process. FastAPI lifespan owns an asynchronous Slack SDK Socket Mode connection, a pooled HTTPX Dagster client, and supervised database-backed work/reconciliation/notification loops. PostgreSQL provides durable receipts, confirmations, launch admission and recovery; use the existing company database platform with a dedicated bot database/role.
-
-This needs no public ingress, runtime Teleport session, separate gateway or worker deployment, message broker, or Kubernetes job-creation permissions for the bot. Dagster retains responsibility for executing jobs. Keep existing internal authentication and enforce workload network access.
+No public ingress or runtime Teleport session is required for this workflow. Existing internal authentication and workload network restrictions remain in force. The actual Service address, deployed GraphQL schema, retry behavior and data policies are implementation verification inputs.
 
 ## Slack interaction
 
-Reply inside an existing Dagster failure thread:
+Reply in an existing Dagster failure thread:
 
 ```text
 @bot logs
@@ -41,28 +48,20 @@ Reply inside an existing Dagster failure thread:
 @bot retry
 ```
 
-The bot resolves the exact run from the trusted root alert. Retry presents whole-run re-execution or a fresh copy, then asks the requester to confirm. All results and progress remain in that thread. A bare `@bot` shows an action menu.
+The bot resolves the exact source run from the trusted alert. Retry offers whole-run re-execution or a fresh copy, then requester confirmation. Evidence, controls and progress remain in that thread. A bare `@bot` shows a menu.
 
-## Reliability
+Durable state prevents duplicate command handling and coordinates one active bot-created run family across replicas. Uncertain launches are reconciled without automatic resubmission. Phase one has no LLM; a later company AI gateway can reuse the same typed services and policies.
 
-- Two identical production replicas; DEV may use one.
-- Persist accepted requests before acknowledging Slack.
-- One active bot-controlled run family across all replicas, including automatic retries.
-- Deduplicated commands/buttons and one automatic launch dispatch per operation.
-- Reconcile uncertain launches; never blindly resend a mutation after a timeout.
-- Preserve logical configuration and selections while validating against current deployed code.
-- Supervise background loops and recover durable work after pod replacement.
+## Validate and continue
 
-Phase 1 uses deterministic commands without an LLM. A later company AI gateway can interpret mentions through the same typed services and confirmation rules.
+With Node.js 20.19.0 or later, run from the repository root:
 
-## Detailed design
+```bash
+npx --yes --package @fission-ai/openspec@1.13.2 openspec validate add-dagster-slackbot --strict --no-interactive
+npx --yes --package @fission-ai/openspec@1.13.2 openspec status --change add-dagster-slackbot
+npx --yes --package @fission-ai/openspec@1.13.2 openspec instructions apply --change add-dagster-slackbot
+```
 
-Read [the full high-level and low-level specification](dagster_slackbot_spec.md), especially:
+OpenSpec 1.13.2 strict validation passed for this planning change. A complete artifact status means the documents are present; implementation progress remains **0/56 tasks**. Begin with the environment contract tasks, then build and verify in dependency order.
 
-- [Architecture and direct API access](dagster_slackbot_spec.md#5-hld-two-applications-direct-internal-api-access)
-- [Dagster adapter and execution semantics](dagster_slackbot_spec.md#8-dagster-adapter-and-execution-semantics)
-- [Durability and launch safety](dagster_slackbot_spec.md#9-durable-operation-model)
-- [Kubernetes deployment and connectivity checks](dagster_slackbot_spec.md#14-kubernetes-deployment-and-operations)
-- [Environment facts still to verify](dagster_slackbot_spec.md#19-remaining-questions-and-verification-register)
-
-The company's deployed Dagster schema, Service details, Slack alert format and database guarantees must be verified before enabling production mutations. The design update has not changed the company cluster.
+The original [specification path](dagster_slackbot_spec.md) remains as a compatibility index. Its complete v0.3 technical content is carried forward in the OpenSpec design.
