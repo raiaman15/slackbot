@@ -1,155 +1,117 @@
 ## Purpose
 
-Operate Dagster from authenticated mentions in existing failure threads, with exact targets, explicit approvals, bounded evidence, and recoverable delivery.
+Provide an optional Slack adapter for shared Dagster application services, using trusted failure threads, explicit approval, bounded evidence, and honest process-lifetime delivery guarantees.
 
-Publisher and log-storage findings are recorded in the supplied [environment audit](../../environment-audit.md).
+Publisher and log-storage findings are recorded in the [environment audit](../../environment-audit.md).
 
 ## ADDED Requirements
 
-### Requirement: Deterministic human commands
+### Requirement: Independently enabled Slack adapter
 
-The system SHALL accept supported new human messages containing its exact mention, derive the requester from authenticated message identity, and ignore bots, self-events, missing human identities, edits/deletions, unsupported subtypes, hidden/system messages, and unmentioned replies. Trusted bot-authored alerts remain eligible roots. Phase one SHALL use bounded, case-insensitive documented grammar without an LLM; unknown flags, oversized input, and unsupported prose SHALL return usage without execution. Bare mentions SHALL show actions. Aliases, if enabled, SHALL be documented; plain assent SHALL NOT confirm actions.
+Slack SHALL be a separate adapter and implementation workstream. With `SLACK_ENABLED=false`, the application and DEV workbench SHALL start without Slack credentials, API calls, connection tasks, or Slack-dependent readiness. When enabled, Socket Mode SHALL translate authenticated events and interactions into the same typed commands, actors, target contexts, approvals, and services used by other authorized adapters. Slack connection health SHALL be reported separately from Dagster, core, and workbench health. Slack failure SHALL NOT change an execution outcome or permit an alternative authorization path.
 
-#### Scenario: Human requests logs
-- **WHEN** a human mentions the bot beneath a trusted integration alert
-- **THEN** the request belongs to that human, independently of installation identity or claims in message text.
+#### Scenario: Slack is not configured
+- **WHEN** Slack is disabled and the DEV workbench is enabled
+- **THEN** DEV commands and tests work without a Slack app or workspace.
 
-#### Scenario: Unsupported invocation
-- **WHEN** a message is edited, unmentioned, bot-authored, or outside the grammar
-- **THEN** it creates no action; unsupported human commands receive bounded usage.
+### Requirement: Deterministic human commands and volatile receipt
+
+The adapter SHALL accept supported new human messages containing its exact mention and derive the requester from authenticated context. It SHALL ignore bots, self-events, missing human identities, edits/deletions, unsupported subtypes, hidden/system messages, and unmentioned replies; trusted publisher messages remain eligible roots. Phase one SHALL use bounded, documented, case-insensitive grammar without an LLM. Bare mentions show actions; unknown flags, oversized input, and unsupported prose return usage. Plain assent SHALL NOT confirm actions.
+
+Socket envelopes SHALL be acknowledged promptly after bounded in-memory admission; Dagster queries and membership checks follow acknowledgement. Acknowledgement means volatile receipt, not durable acceptance or execution. Full queues SHALL reject work with a best-effort busy response without depending on Slack redelivery. Event deduplication SHALL use workspace/event identity independently of envelope identity; interaction deduplication SHALL use saved approval state. Deduplication is bounded and lost on restart. Replayed commands MAY prepare a new preview but SHALL NOT execute without a current explicit confirmation and shared dispatch checks.
+
+#### Scenario: Duplicate receipt or restart
+- **WHEN** Slack delivers a repeated event during a process lifetime, or replays it after restart
+- **THEN** remembered duplicates are ignored; forgotten requests cannot recreate approved execution authority.
 
 ### Requirement: Exact trusted failure identity
 
-Failure-specific `logs`, `status`, `config`, and `retry` SHALL require an existing root distinct from the command timestamp. Workspace, channel, and timestamps SHALL come from authenticated Slack context; timestamps remain strings. The system SHALL retrieve that exact root, verify configured publisher and alert shape, and extract a full run ID from trusted fields or link patterns without fetching arbitrary URLs or ingesting whole conversations. It SHALL verify the ID against configured environment, code location, repository, job, and supplied partition evidence. Missing, inaccessible, untrusted, ambiguous, or out-of-scope roots SHALL fail with an explanation; suffix matches and latest-run selection SHALL NOT establish identity.
+Failure-specific `logs`, `status`, `config`, and `retry` SHALL require an existing root distinct from the command timestamp. Workspace, channel, and timestamps SHALL come from authenticated context; timestamps remain strings. The adapter SHALL retrieve that exact root, verify configured publisher and alert shape, and extract one full UUID from trusted fields or configured patterns without fetching URLs or ingesting whole conversations. Shared services SHALL verify environment, code location, repository, job, and available partition evidence. Missing, inaccessible, untrusted, ambiguous, or out-of-scope roots SHALL fail with an explanation; suffix matches and latest-run selection SHALL NOT establish identity.
 
-For the audited dagster-slack 1.13.1 publisher, primary extraction SHALL use the `View in Dagster UI` button URL matching configured `http://127.0.0.1:8080//runs/<full-uuid>`, including scheme, host, port and doubled slash. The visible first UUID segment SHALL NOT identify the run. This source-verified format needs no publisher change; production binding SHALL still require captured Slack fixtures and verified publisher bot/app, workspace, and channel IDs. The URL SHALL be parsed as identity evidence, never fetched or treated as a usable employee link.
+For the audited dagster-slack 1.13.1 publisher, primary extraction SHALL use the `View in Dagster UI` button matching `http://127.0.0.1:8080//runs/<full-uuid>`, including the doubled slash. The shortened visible UUID SHALL NOT identify the run. This pattern requires no publisher rewrite, but enabling trusted binding SHALL require a captured payload and verified publisher bot/app, workspace, and channel IDs. The URL is parsed, never fetched or offered as an employee link.
 
-#### Scenario: Root has a short link label
-- **WHEN** the trusted root's link contains a full run ID
-- **THEN** the system verifies that ID without requiring the user to copy it.
-
-#### Scenario: Audited localhost button contains the identity
-- **WHEN** a verified publisher's matching button contains one full UUID despite shortened visible text
-- **THEN** the bot SHALL bind that verified run without fetching the URL or requiring a publisher rewrite; unknown URL patterns SHALL fail automatic binding.
+#### Scenario: Short text and full button UUID
+- **WHEN** a verified root contains one matching full UUID in its button URL
+- **THEN** the adapter binds that verified run without requiring copied IDs or fetching the URL.
 
 #### Scenario: Identity is incomplete
-- **WHEN** only a suffix or neighboring message is available
-- **THEN** the system refuses automatic binding, even if one search candidate appears.
+- **WHEN** only a suffix, neighboring message, or unknown URL pattern is available
+- **THEN** automatic binding fails even if one search candidate appears.
 
-### Requirement: Stable binding and explicit fallback
+### Requirement: Stable process-lifetime binding
 
-The workspace/channel/root binding SHALL retain the original failure. Children, edited alerts, listings, and status updates SHALL NOT retarget it. An explicit eligible related-run selection SHALL belong to its operation only. For trusted alerts lacking a full ID, `bind <full-run-id>` SHALL verify the run and available evidence, preview job, time, partition, and manual provenance, and require requester confirmation. Conflicts SHALL be surfaced without overwriting verified bindings. Revalidation SHALL detect changed root evidence.
+The in-memory workspace/channel/root binding SHALL retain the original failure. Children, listings, status updates, and edited alerts SHALL NOT retarget it. Explicit eligible related-run selection belongs only to its operation. `bind <full-run-id>` MAY recover a trusted alert lacking a full ID after evidence verification, a provenance/target preview, and requester confirmation; conflicts SHALL refuse replacement. Revalidation SHALL detect changed root evidence. After restart, automatic bindings require fresh root verification and manual bindings require renewed confirmation. An edited root without a saved, verifiable original SHALL NOT establish a binding.
 
-#### Scenario: Recovery creates a child
-- **WHEN** logs are requested afterward without an explicit target
-- **THEN** they describe the original failure; status may separately identify descendants.
-
-#### Scenario: Manual fallback conflicts
-- **WHEN** the supplied run contradicts alert evidence or a verified binding
-- **THEN** the system refuses replacement rather than silently accepting it.
+#### Scenario: Child run or lost binding
+- **WHEN** a retry creates a child, or the process restarts
+- **THEN** logs continue to require the original failure identity; lost manual approval is never reconstructed from messages or run tags.
 
 ### Requirement: Thread-scoped interaction and discovery
 
-Evidence, menus, approvals, receipts, progress, and outcomes SHALL stay beneath the validated root without channel broadcast. The bot SHALL update only its saved messages, never the publisher's alert. Controls SHALL match saved channel, root, and card. `help` and `capabilities` SHALL expose the enabled operation catalog and sanitized unavailability reasons. Listings SHALL offer bounded explicit pagination without rebinding; optional presets/mappings SHALL NOT block logs, status, or retry. Top-level informational commands MAY reply beneath themselves; top-level failure commands SHALL request a failure-thread reply.
+Evidence, menus, approvals, receipts, and outcomes SHALL stay beneath the validated root without channel broadcasts or DM rerouting. The bot SHALL update only its own saved messages. Controls SHALL match saved channel, root, and card. `help` and `capabilities` SHALL expose enabled commands and sanitized unavailable reasons. Listings SHALL provide explicit bounded pagination without rebinding. Optional presets/mappings SHALL NOT block core reads or retry. Top-level informational commands MAY reply beneath themselves; top-level failure commands SHALL request a failure-thread reply.
 
 #### Scenario: Copied control or top-level retry
 - **WHEN** a control has a different context or retry lacks an existing failure root
-- **THEN** the system refuses execution and explains the required context.
+- **THEN** the adapter refuses execution and explains the required context.
 
-### Requirement: Channel membership authorizes access
+### Requirement: Slack membership proves actor scope
 
-Before Dagster access, the system SHALL verify authenticated transport, configured app/workspace, allowlisted invoking channel, bot membership, human membership, enabled capability, and configured target scope. Human membership SHALL use complete pagination. All verified members SHALL have equal ordinary permissions without a separate Teleport login, including newly joined members of publicly joinable allowed channels. Company-controlled, non-Slack-Connect channels SHALL be the default. Invitation alone SHALL NOT authorize a channel. Endpoint/environment overrides SHALL be rejected; future interfaces SHALL use the same policy boundary.
+Before Dagster access, the adapter SHALL verify authenticated transport, configured app/workspace, allowlisted invoking channel, bot membership, human membership, enabled capability, and target scope. Membership SHALL use complete pagination. All verified channel members have equal ordinary permissions, including newly joined members of publicly joinable allowed channels. Company-controlled, non-Slack-Connect channels are the default; invitation alone does not authorize a channel. Endpoint/environment overrides SHALL be rejected. The adapter SHALL pass verified actor and scope to shared services; other adapters SHALL prove their own authorized principals without pretending to be Slack users.
 
-#### Scenario: Membership is on a later page
-- **WHEN** the complete result contains the requester
-- **THEN** the system recognizes membership rather than checking only the first page.
+Reads SHALL use membership evidence at most 30 seconds old. Mutations SHALL freshly check requester membership and policy within five seconds before invocation; waits require refreshed authorization and target prechecks. Incomplete checks deny or defer. Observed revocation invalidates approval. This cannot atomically prevent a later membership change. Redacted diagnostic events SHALL distinguish authenticated human and transport context from backend identity, without promising a durable application audit ledger.
 
-#### Scenario: Context is unauthorized
-- **WHEN** the channel is unapproved/shared under default policy, or the requester is absent
-- **THEN** the system refuses before reading or changing Dagster data.
-
-### Requirement: Fresh authorization and human attribution
-
-Reads SHALL use membership evidence at most 30 seconds old. Mutations SHALL freshly check requester membership and policy immediately before execution; waits exceeding five seconds SHALL trigger refreshed authorization and target-state prechecks. Incomplete/unavailable checks SHALL deny or defer, and observed revocation SHALL invalidate approval. This is not an atomic guarantee against later membership changes. Protected audit records SHALL retain authenticated human, workspace, channel, root, operation, target, decisions, and transitions separately from the shared backend service identity, excluding secrets and raw errors.
-
-#### Scenario: Requester leaves before dispatch
-- **WHEN** final membership verification fails
+#### Scenario: Later-page member leaves before dispatch
+- **WHEN** complete pagination initially verifies membership but final verification fails
 - **THEN** the system invalidates approval and performs no mutation.
 
-### Requirement: Exact requester-approved previews
+### Requirement: Requester-approved immutable previews
 
-Every mutation and manual binding SHALL require the original requester's explicit approval; reads require none. Other members SHALL NOT confirm, change mode, or cancel that proposal, but MAY create their own. Retry SHALL offer whole-run re-execution and a fresh copy, explaining lineage. Previews SHALL show exact target/effect, source, job, environment, partition/selection, current-code policy, verified retry policy, and incompatibilities. Schedule/sensor starts SHALL explain future runs outside the bot slot. Material changes to target, source state, configuration, selection, policy, or observable code SHALL require renewed preview and approval.
+Every Dagster mutation and manual binding SHALL require the original requester's explicit approval. Other members SHALL NOT confirm, change mode, or cancel that proposal, but MAY create their own. Retry SHALL offer whole-run re-execution and a fresh copy, explaining lineage, current-code behavior, verified automatic retry policy, and possible queueing. Previews SHALL identify exact target/effect, source, job, environment, partition/selection, and incompatibilities. Schedule/sensor starts SHALL explain future runs outside the bot slot. Material changes require renewed preview. A completed earlier attempt for the same source requires explicit repeat acknowledgement; active, pending, or unresolved attempts cannot be bypassed by changing mode.
 
-#### Scenario: Another member uses a control
-- **WHEN** someone other than the requester clicks it
-- **THEN** they receive private denial without altering the card or consuming approval.
+#### Scenario: Different actor or changed preparation
+- **WHEN** another member clicks a control, or material action details change
+- **THEN** another actor receives denial without consuming approval; changed preparation invalidates old controls and requires a new preview.
 
-#### Scenario: Preparation changes
-- **WHEN** mode or material action details change
-- **THEN** a new preview invalidates previous controls; confirmed actions remain immutable.
+### Requirement: Expiring process-bound controls
 
-### Requirement: Expiring single-use controls
+Confirmation SHALL expire five minutes after preview preparation and bind boot ID, operation, requester, workspace, channel, root, saved card, mode, immutable intent/preview, and single-use interaction reference. Under process-local synchronization, every binding and state SHALL match before consumption. Controls SHALL carry opaque references only; browser/message-supplied identities, targets, or configuration SHALL NOT override saved state. Restart, expiry, supersession, or eviction of an eligible proposal invalidates its controls. Fresh confirmation SHALL NOT override disabled mutations or uncertain dispatch.
 
-Confirmation SHALL expire five minutes after preview preparation and bind operation, requester, workspace, channel, root, saved bot card, mode, immutable request/preview identities, and a single-use interaction reference. All bindings and current state SHALL match before atomic consumption. Controls SHALL carry opaque references only; supplied actors, roles, targets, or configuration SHALL NOT override saved state.
+#### Scenario: Duplicate or old-boot interaction
+- **WHEN** a confirmation is duplicated or belongs to an earlier process
+- **THEN** it cannot create additional execution authority; expired state requires a new request and preview.
 
-#### Scenario: Duplicate or stale interaction
-- **WHEN** confirmation is duplicated, expired, superseded, or altered
-- **THEN** at most one valid transition occurs, without additional execution authority, even if the card still looks active.
+### Requirement: Operation inspection and explicit cancellation
 
-### Requirement: Recoverable proposals and explicit cancellation
+`operation <id>` SHALL expose retained operation state only to authorized users in its saved context. Its requester MAY recover an unexpired proposal there. Lost state SHALL be reported as unavailable, never as evidence that no run launched. Scoped Dagster queries MAY recover verified run facts but SHALL NOT fabricate command history or recover approvals. `Cancel request` cancels only an unsubmitted proposal; message deletion does not cancel a submitted run. Dagster cancellation requires exact-run selection and separate confirmation. Slack controls SHALL NOT arm mutations, reset uncertainty, or perform operator recovery.
 
-`operation <id>` SHALL be available to authorized users only in its saved channel/root; its requester MAY recover an unexpired proposal there. `Cancel request` SHALL cancel only an unsubmitted proposal. Message deletion SHALL NOT cancel execution. Dagster cancellation SHALL require exact-run selection and confirmation, including selection among multiple eligible descendants. Ordinary controls SHALL NOT reset uncertain dispatches; replacement after operator recovery SHALL require a new confirmed operation.
+#### Scenario: Process state is lost
+- **WHEN** the user asks about an unknown operation after restart
+- **THEN** the response explains the limitation and offers authorized run inspection without resubmission.
 
-#### Scenario: Proposal disappears after confirmation
-- **WHEN** its Slack message is deleted
-- **THEN** the saved action continues; only an explicit authorized run-cancellation request can stop the run.
+### Requirement: Shared bounded Dagster evidence
 
-### Requirement: Bounded Dagster evidence
+Evidence retrieval and sanitization SHALL be transport-independent application services used by Slack and the DEV workbench. Logs SHALL use exact-run structured run/step failures, supported cause chains, timestamps, and stack frames. Absent exceptions or unsupported diagnoses SHALL be stated. Responses SHALL identify job, environment, full run ID, failed step, retry state, and available requester/operation context without inventing missing facts. Status distinguishes original and related runs; config shows sanitized logical inputs only.
 
-Logs SHALL use exact-run structured run/step failures, supported cause chains, ordered timestamps, and stack frames; absent exceptions or unsupported diagnoses SHALL be stated. Responses SHALL identify job, environment, full run ID, failed step, exception, retry state, requester, operation, and redaction/truncation. Status SHALL distinguish original and related runs; config SHALL show sanitized logical inputs only. Retrieval SHALL bound pages, events, bytes, depth, and runtime: initially 100 events/page, 1 MiB/request, a ten-second response target, 30 rendered frames, and approximately 6,000 total characters within individual Slack block limits. Bounds SHALL produce partial-result notices and explicit pagination or human access.
-
-Both audited instances use `NoOpComputeLogManager`; raw stdout/stderr are not persisted and run pods are cleaned up. `logs` SHALL explicitly describe structured event-log evidence, without promising recoverable raw compute logs or adding Kubernetes log permissions. Human operators MAY inspect pod logs only while the pod still exists.
+Retrieval SHALL bound pages, events, bytes, depth, and runtime: initially 100 events/page, 1 MiB/request, a ten-second response target, and 30 rendered frames. Slack SHALL additionally bound output to approximately 6,000 characters within individual block limits. Reaching bounds SHALL produce partial-result notices and explicit continuation or human access. Both audited instances use `NoOpComputeLogManager`; `logs` SHALL explain that raw stdout/stderr are not persisted, without adding Kubernetes log permissions or promising recoverable compute logs.
 
 #### Scenario: Evidence exceeds limits
-- **WHEN** any retrieval or rendering bound is reached
-- **THEN** the response marks the excerpt as partial and offers continuation without silently dropping evidence.
+- **WHEN** retrieval or rendering reaches a bound
+- **THEN** each adapter identifies partial evidence and offers authorized continuation without silently claiming completeness.
 
-### Requirement: Redaction before disclosure
+### Requirement: Redaction before any disclosure
 
-Evidence SHALL remain Dagster-only, without external investigation or LLM disclosure. Before rendering, logging, caching, or audit export, the system SHALL redact credentials, tokens, passwords, authorization headers, secret URI components, configured sensitive keys, and owner-approved sensitive patterns. It SHALL exclude exception locals, raw connection strings, and secret-bearing request/response details; previews SHALL withhold secrets. Evidence markup SHALL be inert. Uncertain/prohibited bodies SHALL be withheld with safe class/metadata and protected human access. Full-log uploads and DM rerouting SHALL be excluded. Employee links SHALL use a valid configured convention; otherwise provide full UUID and established port-forward instructions, never fabricated public/internal Service links. Production enablement SHALL require owner review of representative errors and disclosure policy.
+Evidence SHALL remain Dagster-only, without external investigation or LLM disclosure. Before rendering, diagnostic logging, caching, or export, shared services SHALL redact credentials, tokens, passwords, authorization headers, secret URI components, configured sensitive keys, and owner-approved patterns. Exception locals, raw connection strings, and secret-bearing bodies SHALL be excluded; previews withhold secrets. Slack markup and workbench HTML SHALL be inert. Uncertain/prohibited content SHALL be withheld with safe metadata. Full-log uploads and DM rerouting SHALL be excluded. Human links SHALL use an approved convention; otherwise show the UUID and established port-forward instructions, never fabricated public/internal Service links. Production enablement requires owner review of representative errors and disclosure policy.
 
-#### Scenario: Error contains sensitive or active markup
-- **WHEN** evidence contains secrets, mention/link syntax, or unsafe content
-- **THEN** the system sanitizes and escapes it before disclosure, withholding bodies it cannot safely render.
+#### Scenario: Evidence contains secrets or active markup
+- **WHEN** Dagster evidence includes sensitive or executable content
+- **THEN** both adapters sanitize and escape it, withholding unsafe bodies.
 
-### Requirement: Notification delivery cannot change execution
+### Requirement: Best-effort notifications and bounded memory
 
-Required notifications SHALL be durably recorded with their operation transitions and stable logical identities. Delivery SHALL remain independent of execution: failures SHALL NOT replay launches, reset dispatchability, stop observation, or change outcomes. Inspection SHALL distinguish transport acknowledgement, durable acceptance, creation, queued/running execution, cancellation requested, terminal outcome, uncertain submission, and pending delivery. Acceptance SHALL follow durable receipt; creation SHALL NOT imply running/success. Ambiguous Slack posts SHALL reconcile the saved thread where practical; identifiable duplicates are tolerated without claiming exactly-once delivery.
+Notifications SHALL remain separate from execution and SHALL use only bounded, redacted in-memory state. Delivery failures SHALL NOT replay mutations, stop observation, or change outcomes. Replies SHALL distinguish volatile receipt, created, queued/running, cancellation requested, terminal, unknown submission, and delivery failure. Retry delivery at most ten times or fifteen minutes per notification, respecting `Retry-After`; coalesce progress to at most one update per fifteen seconds. Terminal delivery targets p95 within thirty seconds of visible completion under healthy dependencies, without promising durable or exactly-once delivery.
 
-#### Scenario: Slack loses a creation response
-- **WHEN** a run exists but its notification is missing or ambiguous
-- **THEN** the system tracks that run and retries only delivery using its operation identity.
+Before disclosure, recheck destination policy. Revocation stops new disclosure and dispatch from that context; active-run monitoring continues while the process lives, with independent redacted operator diagnostics. Restart loses pending notifications and thread routing. Recovered run tags SHALL NOT authorize routing; require a fresh authenticated request. Raw errors remain transient; resolved RAM state follows execution-runtime bounds. Unknown/active state SHALL NOT be evicted to free execution capacity. There SHALL be no bot database, durable outbox, retained configuration snapshots, or guaranteed audit retention; Dagster, Slack, and platform-log retention apply independently.
 
-### Requirement: Rate-aware delivery and destination revocation
-
-Progress SHALL coalesce to at most one update per 15 seconds per operation by default, prioritize start/end, respect `Retry-After`, and avoid streaming traces. Terminal replies SHALL include primary/relevant retry IDs and target p95 delivery within 30 seconds of Dagster-visible completion under healthy dependencies. Before disclosure the system SHALL recheck destination policy. Disallowed channels or lost bot access SHALL stop new dispatch/disclosure, preserve monitoring/results/audit, and signal independent operator monitoring without rerouting, replaying, or canceling execution.
-
-#### Scenario: Channel access is revoked
-- **WHEN** a result is pending for a now-unauthorized destination
-- **THEN** delivery becomes an incident while execution monitoring continues independently.
-
-### Requirement: Retention by data category
-
-Unless approved company policy changes configurable periods, the system SHALL retain:
-- Raw structured errors: transient only, never in its database.
-- Redacted delivery payloads: seven days after delivery or terminal delivery incident.
-- Normalized receipts/attempts: 90 days, then audit fields only.
-- Operation metadata/audit: 365 days; confirmation metadata follows this period despite five-minute validity.
-- Protected configuration snapshots: active lifetime plus seven days after terminal resolution.
-- Terminal thread bindings: 90 days, then re-resolve on use.
-
-Unresolved operation, admission, and recovery evidence SHALL survive cleanup without permitting raw-error persistence. Slack copies SHALL follow workspace retention independently.
-
-#### Scenario: Cleanup encounters old state
-- **WHEN** retention expires
-- **THEN** resolved data is deleted/reduced by category, unresolved recovery evidence survives, and expired bindings require fresh verification.
+#### Scenario: Delivery fails or the process restarts
+- **WHEN** a creation reply is missing, retries are exhausted, or notification state is lost
+- **THEN** the run is never relaunched for delivery; subsequent authorized queries can obtain Dagster facts without promising recovery of the missing message.

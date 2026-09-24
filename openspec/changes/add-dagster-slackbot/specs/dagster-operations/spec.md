@@ -11,7 +11,7 @@ The system SHALL use named GraphQL operations verified against the deployed sche
 
 The initial adapter SHALL target audited Dagster 1.13.1 in DEV and PROD. Its pinned documents SHALL use `launchRun`, `launchRunReexecution`, `terminateRun`, `startSchedule`, `stopRunningSchedule`, `startSensor`, and `stopSensor` as applicable; there is no `stopSchedule`. Scope configuration SHALL use deployed workspace identities, initially location `k8s-example-user-code-1` and repository `__repository__`, rather than names from an undeployed workspace file.
 
-After an explicit bot mention, the system SHALL expose:
+The shared application services SHALL expose this catalog. Slack maps explicit mentions to it; the DEV workbench maps its commands and controls to the same services:
 
 | Command | Behavior |
 |---|---|
@@ -30,8 +30,8 @@ After an explicit bot mention, the system SHALL expose:
 | `schedules`, `sensors` | Definitions, state and ticks |
 | `schedule start/stop <name>` | Set one schedule's desired state |
 | `sensor start/stop <name>` | Set one sensor's desired state, preserving its cursor |
-| `operation <id>` | Current-thread operation and requester's pending confirmation |
-| `bind <full-run-id>` | Confirm an exceptional manual thread binding |
+| `operation <id>` | Current-context in-memory operation, or positively identified Dagster run facts; lost controls cannot be recovered |
+| `bind <full-run-id>` | Slack-only exceptional manual thread binding, valid only within the current process |
 
 #### Scenario: Capability or target is unsupported
 - **WHEN** an operation lacks verified schema support or targets another scope
@@ -55,7 +55,7 @@ Phase one SHALL exclude bulk retries, multi-partition backfills, arbitrary Graph
 - **THEN** the system SHALL refuse the command rather than broaden it.
 
 ### Requirement: Stable source and retry eligibility
-Failure-specific `logs`, `status`, `config` and `retry` SHALL default to the verified root-alert run. Explicit child selection SHALL belong to that operation without changing the thread binding; definition commands SHALL retain their named targets.
+Failure-specific `logs`, `status`, `config` and `retry` SHALL default to the verified Slack root-alert run or explicitly bound DEV run/fixture. Explicit child selection SHALL belong to that operation without changing the thread binding; definition commands SHALL retain their named targets.
 
 Default retry SHALL require a terminal failed source. Successful or canceled sources SHALL require fresh-copy preparation explicitly displaying their status; active sources SHALL be refused. Active-backfill members SHALL be ineligible. Completed-backfill copies SHALL require verified tag filtering and original-selection preservation.
 
@@ -68,7 +68,7 @@ Default retry SHALL require a terminal failed source. Successful or canceled sou
 - **THEN** the system SHALL show the state and refuse execution.
 
 ### Requirement: Two explicit retry modes
-For eligible sources, `retry` SHALL offer whole-run re-execution and fresh copy. Both SHALL create a new run ID using current deployed code. Whole-run re-execution SHALL preserve supported parent/root lineage and execute the complete eligible source selection. Fresh copy SHALL create a new Dagster root with bot-retained source provenance. Neither mode SHALL resume from failure by reusing successful outputs as retry inputs.
+For eligible sources, `retry` SHALL offer whole-run re-execution and fresh copy. Both SHALL create a new run ID using current deployed code. Whole-run re-execution SHALL preserve supported parent/root lineage and execute the complete eligible source selection. Fresh copy SHALL create a new Dagster root with source provenance in supported run tags. Neither mode SHALL resume from failure by reusing successful outputs as retry inputs.
 
 #### Scenario: Requester chooses a mode
 - **WHEN** the requester confirms an eligible retry
@@ -120,7 +120,9 @@ Cancellation SHALL require requester confirmation for one exact supported active
 - **THEN** the bot SHALL report cancellation pending and observe the eventual outcome.
 
 ### Requirement: Serialized automation desired state
-Schedule/sensor start/stop SHALL preview and confirm one definition's desired state, serialize requests per target and preserve sensor cursors. After ambiguous responses, the system SHALL read current state before supported idempotent convergence. Unresolved older requests SHALL block contradictory dispatch until resolved or isolated.
+Schedule/sensor start/stop SHALL preview and confirm one definition's desired state, serialize requests per target and preserve sensor cursors. After ambiguous responses, reads SHALL serve observation only; the old approval SHALL NOT authorize another mutation. Further changes SHALL require resolved uncertainty, fresh preparation/confirmation and the normal mutation gate. Unresolved older requests SHALL block contradictory dispatch until resolved or isolated.
+
+Every automation/cancellation mutation SHALL obey the runtime boot gate and one-invocation rule. A lost response SHALL disarm mutations; observing a value once SHALL NOT prove an older request cannot arrive later. Lost process state SHALL require operator reconciliation before another mutation.
 
 Previews SHALL explain that enabling automation can create multiple future runs outside the bot's single-family slot. Stopping SHALL NOT imply cancellation of existing runs. The bot SHALL observe external UI/daemon changes without claiming atomic exclusion or instance-wide concurrency control, including over automatic retries.
 
@@ -129,8 +131,22 @@ Previews SHALL explain that enabling automation can create multiple future runs 
 - **THEN** the target SHALL remain occupied until that request is resolved or isolated before stop dispatch.
 
 ### Requirement: Typed services govern every entry point
-All entry points SHALL use the same typed preparation, authorization, confirmation, dispatch and reconciliation contracts. Phase one SHALL need no LLM or MCP. Future interpreters SHALL propose typed intents only, without choosing actor identity, bypassing confirmation or directly executing Dagster operations.
+All entry points SHALL use the same typed preparation, authorization, confirmation, dispatch and reconciliation contracts, independent of Slack libraries. Actor context SHALL include transport, authenticated principal, authorized environment/scope and target context. Slack supplies verified membership/root evidence; live DEV supplies an authenticated DEV-only session. Mock identities SHALL never authorize a live backend. Phase one SHALL need no LLM or MCP. Future interpreters SHALL propose typed intents only, without choosing actor identity, bypassing confirmation or directly executing Dagster operations.
 
 #### Scenario: Future language adapter proposes retry
 - **WHEN** its intent enters the application
-- **THEN** the same verified Slack actor, target, current authorization, preview and confirmation SHALL be required.
+- **THEN** the originating transport's authenticated actor, verified target, current authorization, preview and confirmation SHALL still be required.
+
+### Requirement: GraphQL evidence replaces a bot database
+The bot SHALL use supported GraphQL queries and created-run tags for execution evidence, without a separate database, direct Dagster-storage access or a fabricated persistent operation store. The adapter SHALL support complete bounded discovery by stable installation, request, operation and source provenance, with validated job/configuration/selection, mode and lineage. Discovery SHALL include active runs and terminal parents with pending retries. Missing pages, inaccessible metadata, retention gaps or ambiguous tag/lineage matches SHALL defer launch rather than approximate absence. Tag-input and query support SHALL be contract-tested before launch capability is enabled.
+
+#### Scenario: A request was submitted before process restart
+- **WHEN** current authorized lookup positively matches its tagged Dagster run
+- **THEN** the system SHALL return verified run facts without replaying submission or recreating lost confirmation authority; if no match can be established, it SHALL report unknown/unavailable rather than never submitted.
+
+### Requirement: Previous attempts require explicit review
+Before either retry mode, the system SHALL inspect bot-created attempts for the source across both modes, alongside the source's automatic retry family. A mode switch SHALL NOT bypass active, pending or unknown prior work. A positively matched original request SHALL return its existing result. A deliberately new request after conclusive completion SHALL show previous attempts and require explicit repeat acknowledgement in a fresh preview; changed prior-attempt evidence SHALL invalidate confirmation. These are evidence checks, not atomic exclusion of external Dagster activity.
+
+#### Scenario: Fresh copy follows a linked re-execution
+- **WHEN** the earlier bot-created family remains queued, active, pending retry or unresolved
+- **THEN** the fresh-copy action SHALL be refused or deferred; changing lineage mode SHALL NOT create a parallel attempt.

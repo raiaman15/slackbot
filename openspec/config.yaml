@@ -1,18 +1,18 @@
 schema: spec-driven
 
 context: |
-  Python FastAPI Slackbot and self-hosted Dagster share a cluster per environment.
-  The active change environment-audit.md records the 2026-09-24 photographed baseline.
-  Dagster 1.13.1 uses private HTTP port 80; separate bot namespace access needs
-  explicit Dagster-side NetworkPolicy remediation. Private identifiers stay outside git.
-  Phase 1: deterministic @bot commands in failure threads; no LLM.
-  Use outbound Socket Mode, private Dagster GraphQL, and PostgreSQL durability.
-  PROD: one deployment, two replicas, one Uvicorn process per pod.
-  Scope: one workspace, allowlisted channels, one PROD code location; separate DEV.
-  Preserve exact run binding, requester confirmation, logical inputs/current code,
-  Dagster-owned retries, one active bot-created family and no blind launch retries.
-  These are planning artifacts; implementation and remaining audit release gates are pending.
+  Python FastAPI and self-hosted Dagster share a cluster per environment.
+  No bot database, persistent work store, or distributed coordination service.
+  One pod/process; bounded memory; Dagster GraphQL supplies run evidence.
+  Every boot disarms mutations until operator reconciliation; no blind mutation retries.
+  Build shared services and DEV-only mock/live workbench first; Slack is a separate adapter.
+  Slack may be disabled for development; production exposes no DEV UI or mock routes.
+  Preserve trusted failure threads, current authorization, requester confirmation,
+  original inputs/latest code, Dagster retries and one admitted bot-created family.
+  Audit baseline: Dagster 1.13.1, private HTTP port 80, cross-namespace policy gate.
+  One workspace, allowlisted channels, one PROD code location; isolated DEV.
+  No LLM in phase one. Implementation and environment release checks remain pending.
 
 rules:
   tasks:
-    - Include verification with each implementation task; check it only after completion.
+    - Include verification per task; check it only after implementation and evidence pass.

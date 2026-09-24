@@ -1,157 +1,120 @@
 ## Purpose
 
-Keep Slack operations durable, prevent automatic duplicate launches, and operate FastAPI safely beside Dagster in the same Kubernetes cluster.
+Operate a database-free FastAPI application beside Dagster, with conservative mutation admission, explicit restart recovery, and independently testable transports.
 
-The supplied [environment audit](../../environment-audit.md) records the deployment baseline and outstanding platform evidence.
+The [environment audit](../../environment-audit.md) records reported infrastructure evidence; it does not establish bot workload connectivity.
 
 ## ADDED Requirements
 
+### Requirement: Dagster is the only persistent execution source
+The bot SHALL use Dagster GraphQL for persisted run evidence and SHALL have no bot database, SQLite, Redis, persistent files/volume, object-store ledger, or Kubernetes coordination objects. State SHALL remain in bounded process memory. Platform logs SHALL contain redacted diagnostic events, not function as a work queue or recovery ledger. The system SHALL NOT promise durable command receipt, durable approvals, complete audit history, reliable notification delivery, or exactly-once execution.
+
+#### Scenario: Process state disappears
+- **WHEN** a restart loses commands, proposals, bindings, or notifications
+- **THEN** the bot SHALL report unavailable session context, reject old controls, and recover only facts positively established through scoped Dagster queries; missing memory SHALL NOT mean no launch occurred.
+
 ### Requirement: Private Dagster connection
-FastAPI SHALL call the existing Dagster webserver `/graphql` through the configured environment's release-qualified private Kubernetes Service, using the audited HTTP port 80 baseline. Both audited endpoints have no authentication proxy or application credentials and no ingress; network admission is the access boundary. Slack input SHALL NOT select endpoints or credentials. Redirects SHALL be disabled; any later HTTPS configuration SHALL verify certificates. The absence of observed sidecars SHALL NOT establish mesh absence or mTLS; platform owners SHALL resolve ambient-mesh enrollment and retry behavior before dispatch enablement. The bot SHALL require no human tunnel, public Dagster ingress, Kubernetes mutation/log privileges, local execution, or shared Dagster storage. Dagster SHALL retain execution and retry responsibilities.
+The application SHALL use the configured environment's release-qualified private Service `/graphql`, with audited HTTP port 80 and network-only access; it SHALL NOT accept endpoints or credentials from commands. Redirects SHALL be disabled and later HTTPS SHALL verify certificates. The bot SHALL require no runtime Teleport tunnel, public ingress, Kubernetes execution/log privileges, or access to Dagster storage. Platform owners SHALL confirm mesh enrollment and request-retry behavior before mutations; absent sidecars or namespace labels SHALL NOT prove mesh absence.
 
-The bot SHALL use a separate namespace per environment. Existing Dagster policies select all namespace pods and allow only same-namespace ingress, so deployment SHALL depend on a change owned by the private Dagster deployment repository admitting only bot namespace AND pod selectors in one peer, to selected webserver pods on TCP 80. Existing allowed traffic SHALL remain intact. Deployment SHALL verify effective additive policies and required DNS, database, Slack, and monitoring paths. Tests SHALL run from actual bot and unauthorized workloads; successful audit port-forward queries SHALL NOT prove cross-namespace reachability.
+Separate bot namespaces SHALL require a Dagster-side ingress allowance combining bot namespace AND pod selectors in one peer, restricted to webserver pods on TCP 80. Existing legitimate traffic SHALL remain intact. Effective additive policies, DNS, Slack when enabled, and monitoring paths SHALL be verified. Mutation enablement SHALL require allowed and denied workload-path tests; a port-forward result SHALL NOT qualify.
 
-#### Scenario: Applications occupy different namespaces
-- **WHEN** FastAPI queries or launches a run
-- **THEN** its actual workload identity SHALL use the verified private endpoint without Teleport or port forwarding; cluster placement alone SHALL NOT imply HTTP authentication.
+#### Scenario: Cross-namespace remediation remains unverified
+- **WHEN** the actual bot cannot query GraphQL or an unauthorized workload passes the new allowance
+- **THEN** mutations SHALL remain disabled until scoped policy remediation and both workload tests pass in that environment.
 
-#### Scenario: Network remediation has not passed workload tests
-- **WHEN** the bot cannot reach the webserver or unrelated namespaces/pods can use the new allowance
-- **THEN** dispatch SHALL remain disabled until the scoped Dagster policy change passes both allowed-path and denied-path tests in that environment.
+### Requirement: Single active process
+Deployment SHALL use one replica, one Uvicorn process, a `Recreate` strategy, and no HPA, overlapping rollout, or second instance sharing an installation identity. A fresh unpredictable `boot_id` SHALL identify each process session. `SLACK_ENABLED=false` SHALL permit startup and DEV testing without Slack credentials or connectivity. No broker, worker service, or MCP server SHALL be required.
 
-### Requirement: One combined application deployment
-Production SHALL use one FastAPI deployment with two identical replicas, each running Socket Mode intake and bounded, supervised asynchronous work in one process. Coordination SHALL use durable PostgreSQL and remain correct during rollout overlap. Socket Mode SHALL require outbound connectivity without public bot ingress. Optional HTTP delivery SHALL verify Slack signatures and timestamps and share the same policies. No separate broker, worker service, MCP server, or coordination service SHALL be required.
+#### Scenario: Deployment replaces a pod
+- **WHEN** a new process starts
+- **THEN** it SHALL begin with every mutation disarmed; replica count, `Recreate`, process death, and local locks SHALL NOT be treated as remote request fencing or proof that an old submitter cannot still affect Dagster.
 
-#### Scenario: Replica restarts during rollout
-- **WHEN** old and new pods overlap or one stops
-- **THEN** surviving replicas SHALL continue intake and recoverable work using shared durable state, without relying on stopped-process memory.
+### Requirement: Explicit commissioning and restart recovery
+Every startup SHALL require operator commissioning before any launch, cancellation, or automation mutation. Configuration SHALL set only capability ceilings, never automatically arm mutations. An operator CLI SHALL contact the current process through a local Unix socket accessed through authenticated, audited platform execution. It SHALL bind the decision to `boot_id` and an evidence/change reference; a supplied actor name SHALL NOT authenticate the operator. Slack, DEV UI, remote HTTP, environment flags, and force-reset controls SHALL NOT unlock mutations.
 
-### Requirement: Durable receipt before acknowledgement
-The system SHALL commit a deduplicated receipt and ready work before acknowledging supported events. Confirmation acceptance SHALL atomically consume the single-use confirmation and persist its authorized transition. This path SHALL exclude Slack-history and Dagster calls, reserve database capacity, and use an initial 500 ms transaction deadline. Mention identity SHALL be workspace plus event ID, not transport envelope ID; interactions SHALL use stable action/operation identity. Acknowledgement SHALL mean durable receipt only.
+Commissioning SHALL account for previous submitters and in-flight requests, perform complete bounded GraphQL scans, and validate discovered run families. First installation SHALL require recorded no-prior-submitter evidence. Restart recovery SHALL isolate old submitters where needed. Empty queries, elapsed time, or an operator acknowledgement without evidence SHALL NOT prove non-execution. Insufficient evidence SHALL retain read-only operation. A safely attached active family MAY permit confirmed cancellation after commissioning but SHALL block another launch.
 
-#### Scenario: Duplicate deliveries or double clicks arrive
-- **WHEN** multiple replicas receive the same logical event or confirmation
-- **THEN** only one receipt or confirmation transition SHALL succeed; separately posted identical mentions SHALL remain separate requests.
+#### Scenario: Restart finds no tagged run
+- **WHEN** prior dispatch outcome cannot be established
+- **THEN** the operator SHALL keep mutations disarmed despite an empty scan and resolve the previous submitter and possible remote effects before commissioning.
 
-#### Scenario: Receipt persistence fails or has uncertain outcome
-- **WHEN** successful commit is unconfirmed
-- **THEN** intake SHALL not acknowledge acceptance, SHALL resolve uncertainty using the same identity, and SHALL raise independent health signals without promising eventual Slack redelivery.
+### Requirement: Volatile admission and immutable approval
+Memory SHALL hold the bounded queue, deduplication map, bindings, five-minute proposals, operation states, family slot, definition locks, and notification buffer. Initial limits SHALL be 100 queued commands, 10,000 deduplication entries retained up to 24 hours, 100 proposals, and 1,000 resolved operations retained up to 24 hours. Active or unknown operations SHALL NOT be evicted; exhausted capacity SHALL reject new work. Accepted acknowledgement SHALL mean volatile receipt only.
 
-### Requirement: Immutable intent and audit
-Operations SHALL retain requester, exact target/thread, mode, approved preview/configuration identity, expiry, state version, ownership, and execution evidence. Changing mode before approval SHALL invalidate prior confirmation; after approval, edits SHALL NOT change intent. Legal state transitions and append-only audit SHALL identify the Slack human separately from backend identity and trace acceptance, approval, admission, dispatch, operator decisions, and notifications without raw secrets. Execution and notification state SHALL remain independent.
+Within a session, deduplication SHALL use transport request identity, not command text; Slack mentions SHALL use workspace/event identity rather than envelope identity. Single-use confirmation SHALL consume an immutable requester-bound intent tied to current boot, target, mode, approved inputs, and expiry. Changing intent SHALL require a new proposal. New requests after restart SHALL never recreate approvals automatically.
 
-Configuration SHALL prefer faithful references; required snapshots SHALL be encrypted through company key management with restricted access and key rotation. Missing inputs or decryption failure SHALL block execution rather than substitute defaults.
+#### Scenario: Duplicate event or confirmation arrives
+- **WHEN** its identity is retained or its proposal is consumed, expired, or from another boot
+- **THEN** it SHALL not create a second authorized dispatch; at capacity the bot SHALL reject intake without promising later processing or transport redelivery.
 
-#### Scenario: Old button targets confirmed work
-- **WHEN** it requests a different mode or target
-- **THEN** the system SHALL reject the change and preserve the approved intent and audit history.
+### Requirement: Process-local mutation admission
+One asynchronous lock SHALL serialize admission and protect one bot-created primary family slot per installation/environment. Immediately before invocation, authorization, target, approved inputs, code identity, and retry checks SHALL be no older than five seconds. Changed evidence SHALL invalidate the preview. Competing launches SHALL receive busy responses without deferred automatic execution; reads SHALL remain available. Cancellation and automation SHALL require their own approvals and definition/target serialization.
 
-### Requirement: Atomic global admission
-Across replicas, at most one bot-created primary run family SHALL occupy the production launch slot. Admission SHALL atomically verify ownership after fresh authorization, source state, approved inputs, observable code identity, and retry checks. Pre-dispatch checks older than five seconds SHALL be repeated. Changed previews SHALL require new confirmation. Competing launches SHALL receive busy results rather than wait for unreviewed future execution; reads and cancellation SHALL remain available, with automation controls serialized independently per target.
+Checks SHALL inspect existing request matches, source attempts across both rerun and fresh-copy modes, and scoped active or pending families including retry gaps. Queries SHALL exhaust required cursor pagination within bounded budgets; truncated, inaccessible, or ambiguous evidence SHALL defer mutations. Neither the latest run, first page, nor a recent time window SHALL prove absence. Proven prior requests SHALL return their existing result; repeating a completed attempt SHALL require a new preview and explicit repeat acknowledgement. Active, pending, or unknown attempts SHALL block parallel retry.
 
 #### Scenario: Two users confirm concurrently
-- **WHEN** both request an empty slot
-- **THEN** one SHALL acquire it and the other SHALL receive a busy result identifying the active operation safely.
+- **WHEN** both target an apparently available family slot
+- **THEN** only one SHALL pass the serialized fresh checks; the other SHALL receive the current busy or changed-evidence result.
 
-#### Scenario: Automatic retry changes the source
-- **WHEN** final checks find recovery or an active/pending retry
-- **THEN** the previously approved casual retry SHALL NOT dispatch and the bot SHALL explain the updated state.
+### Requirement: Single-attempt mutation dispatch
+Immediately before `submit_once`, the process SHALL recheck boot identity, the mutation gate, operation ownership and unconsumed dispatch authority under synchronization shared with disarming. That final check, consuming authority in memory and starting invocation SHALL have no intervening asynchronous wait. Closing the gate SHALL prevent subsequent invocations, without claiming to retract requests already started. Each confirmation SHALL authorize at most one mutation POST; client, SDK, application, proxy, and mesh automatic mutation retries SHALL be disabled. Reads MAY retry within bounds. Dagster 1.13.1 provides no launch idempotency key. This guarantee SHALL be explicitly limited to the live process session and SHALL NOT imply server uniqueness or distributed locking.
 
-### Requirement: One automatic dispatch attempt
-Before any launch/re-execution call, the system SHALL commit one immutable dispatch marker under current operation, slot, and worker ownership. Only its creator, after positively confirming commit, SHALL be authorized for one automatic invocation. Transport, SDK, application, mesh, and proxy launch retries SHALL be disabled. Reads MAY use bounded retries. Marker existence SHALL never authorize another process. The system SHALL NOT claim distributed exactly-once execution or ingestion deduplication.
+After invocation begins, timeout, disconnect, cancellation, shutdown, or generic GraphQL/server failure SHALL yield `SUBMISSION_UNKNOWN` unless the adapter proves no side effect. Unknown outcome SHALL disable all new mutations while safe reads and observation continue. Cancellation and automation changes SHALL obey the same rule; an opposite action SHALL NOT overtake an ambiguous earlier one.
 
-The audited Dagster 1.13.1 launch mutations provide no idempotency key; correlation tags SHALL NOT be treated as a server-enforced substitute.
+#### Scenario: Admission closes during fresh checks
+- **WHEN** an approved operation awaits GraphQL checks and an operator disarms the process or another operation becomes uncertain
+- **THEN** the final synchronized check SHALL reject dispatch without issuing a mutation POST.
 
-#### Scenario: Marker commit is ambiguous
-- **WHEN** its creator cannot confirm success
-- **THEN** it SHALL not call Dagster and SHALL reconcile the same operation.
+#### Scenario: Response is lost after launch
+- **WHEN** Dagster may have created or submitted a run
+- **THEN** the bot SHALL neither resend nor free admission; it SHALL reconcile or require operator evidence, without an uncertainty expiry.
 
-#### Scenario: Process dies after marking
-- **WHEN** recovery finds no recorded dispatch result
-- **THEN** it SHALL reconcile without sending again, even if the original process died before making the call.
+### Requirement: Positive GraphQL reconciliation
+Created runs SHALL include stable installation/environment identifiers, unique operation ID, deterministic transport request ID, source ID when applicable, mode, protocol version, and safe intent fingerprint. The adapter SHALL verify tag support in its pinned mutation documents. Tags SHALL exclude credentials, configuration bodies, messages, and unapproved clear Slack identifiers; opaque keyed context identifiers MAY be used. Installation identity SHALL persist in deployment configuration and SHALL NOT rotate to evade history.
 
-### Requirement: Ownership and uncertain outcomes
-Safe work SHALL use bounded claims and reject stale-owner updates. Lease expiry SHALL NOT reauthorize marked dispatch or cancel a remote request. Submitting-process identity and late immutable response evidence SHALL be retained. After authorization, timeout, disconnect, cancellation, shutdown, or unclassified server failure SHALL become `SUBMISSION_UNKNOWN` unless the adapter proves no side effect. Created-but-unsubmitted runs SHALL remain tracked incidents rather than replacement opportunities.
+Tags SHALL support discovery only. Reconciliation SHALL validate scope, job, inputs/selections, and lineage before attaching a primary and actual automatic descendants. Conflicting primaries, created-but-unsubmitted incidents, or insufficient evidence SHALL retain the block. Positive evidence SHALL resolve only what it establishes; observing a current automation/run state SHALL NOT exclude a late earlier mutation. Unknown mutation blocks SHALL clear only after positive reconciliation accounts for remote effects or the controlled operator process supplies sufficient evidence. Restart commissioning SHALL remain mandatory independently.
 
-#### Scenario: Paused worker resumes
-- **WHEN** its claim was reassigned
-- **THEN** it SHALL not acquire new dispatch authority or overwrite state; recovery SHALL still account for any previously authorized request it could send.
-
-#### Scenario: Launch response is lost
-- **WHEN** Dagster may have created the run
-- **THEN** the bot SHALL retain admission and reconcile without resubmission; generic GraphQL errors SHALL NOT prove rejection before creation.
-
-### Requirement: Evidence-based reconciliation and recovery
-New runs SHALL carry operation, dispatch, and source provenance without Slack bodies or credentials. Reconciliation SHALL validate job, location, approved inputs/selections, and lineage. Tags SHALL aid discovery, not guarantee uniqueness. Bounded polling SHALL attach one verified primary and its real automatic descendants. Empty results SHALL NOT prove absence. Competing primaries or unresolved evidence SHALL enter `NEEDS_OPERATOR`, retain admission, and raise independent alerts.
-
-#### Scenario: Tagged candidates include automatic descendants
-- **WHEN** lineage proves one primary retry family
-- **THEN** reconciliation SHALL track that family without treating tag count alone as duplicate execution.
-
-#### Scenario: Operator resolves an unknown dispatch
-- **WHEN** ordinary reconciliation cannot establish the outcome
-- **THEN** a controlled operator path SHALL disable dispatch, terminate or isolate the original submitter as needed, account for in-flight requests, and audit evidence and actor before releasing admission; any later launch SHALL require a new confirmed operation, never reset the old one.
+#### Scenario: Tagged results include descendants
+- **WHEN** lineage proves a single primary family
+- **THEN** the bot SHALL track that family without treating tag count as proof of duplicates or replaying any request.
 
 ### Requirement: Conclusive family completion
-Admission SHALL remain held through queueing, starting, execution, cancellation, retry gaps, and uncertainty. Release SHALL require terminal primary/descendants and authoritative evidence of no pending retry, or controlled audited incident resolution. Quiet periods SHALL NOT substitute for retry evidence; unavailable retry observability SHALL block launch readiness unless documented Dagster-side coordination resolves it.
+The slot SHALL remain occupied through queueing, execution, cancellation, automatic retry gaps, and uncertainty. Release SHALL require terminal primary/descendants and authoritative evidence of no pending retry, or sufficient controlled operator incident resolution. Unavailable retry observability SHALL block new launches. Queued runs SHALL retain coordinator-policy tags and SHALL NOT be replaced merely because execution has not started.
 
-#### Scenario: Parent failed but retry state is unknown
-- **WHEN** exhaustion cannot be established
-- **THEN** the slot SHALL remain occupied and the condition SHALL escalate.
+#### Scenario: Parent is failed but retry is pending
+- **WHEN** a child has not yet appeared or exhaustion cannot be established
+- **THEN** the family slot SHALL remain held; quiet time SHALL NOT qualify as completion.
 
-#### Scenario: Concurrency tags keep the run queued
-- **WHEN** Dagster creates a run that waits under preserved coordinator limits
-- **THEN** the bot SHALL report queued state and retain its family slot without removing tags or launching a replacement.
+### Requirement: Best-effort transport delivery
+Notification retries SHALL affect delivery only, preserve known operation identity, and use bounded memory with an initial ten-attempt/fifteen-minute budget. Restart MAY lose delivery work and duplicate messages MAY occur. Authorization revocation SHALL stop delivery without rerouting evidence. Recovery SHALL NOT infer Slack destinations from untrusted run tags; lost thread context SHALL require a fresh authorized user request. Status SHALL distinguish recovered Dagster facts from unavailable command history.
 
-#### Scenario: Family conclusively completes
-- **WHEN** all completion conditions hold
-- **THEN** final outcome, logical notification, audit evidence, and slot release SHALL be recorded atomically.
+#### Scenario: Slack fails after a run starts
+- **WHEN** notification delivery remains unsuccessful
+- **THEN** observation SHALL continue while the process lives, and no notification retry SHALL relaunch or change execution outcome.
 
-### Requirement: Independent durable notifications
-State transitions SHALL durably create logical notifications for the saved authorized root thread. Delivery SHALL respect rate limits, coalesce progress, and prioritize start/end results. Failed or ambiguous Slack calls SHALL retry or reconcile notification work only; distinguishable duplicate messages MAY occur without duplicate execution. Removed channel authorization SHALL stop delivery there and alert operators without redirecting evidence elsewhere.
+### Requirement: Supervised lifecycle and dependency recovery
+Startup SHALL validate configuration, initialize bounded asynchronous clients, establish read capabilities, and supervise critical loops before intake. Shutdown SHALL stop admission, drain bounded work, close clients, and leave Dagster runs running; it SHALL NOT claim to persist memory or revoke remote requests. Unexpected critical-loop exit SHALL fail health and terminate; dependency outages SHALL back off without restart storms. Dagster storage recovery, restore, or changed history evidence SHALL disarm mutations pending rescan and operator assessment.
 
-#### Scenario: Slack fails after launch
-- **WHEN** a notification cannot be confirmed
-- **THEN** execution tracking SHALL continue and notification recovery SHALL preserve operation identity without launching again or changing successful execution state.
+Liveness SHALL measure process/loop health without downstream calls. Readiness SHALL reflect initialization and enabled transport requirements separately from mutation readiness. Dagster outages SHALL degrade affected capabilities and identify the audited single webserver dependency. Disabled Slack SHALL not fail application readiness. Monitoring SHALL expose commissioning state, unknown operations, capacity pressure, dropped delivery, dependency health, and stale observations through an independent platform path.
 
-### Requirement: Database recovery latch
-The durable store SHALL have a fenced single writer and verified failover semantics preserving acknowledged dispatch commits. Backup restore or potentially lossy promotion SHALL latch dispatch disabled before writes resume. A controlled operator SHALL reconcile ledger, tagged runs, active families, and slot ownership before auditing explicit reopening. Safe reads and reconciliation SHOULD remain available.
+#### Scenario: Process restarts during active work
+- **WHEN** replacement becomes ready for reads
+- **THEN** health SHALL still show mutations disarmed and lost session delivery state; readiness SHALL not imply recovered approvals or automatic resumption.
 
-The bot SHALL have its own database or schema and restricted role, never use Dagster's schema. The initial platform choice SHALL be a dedicated bot schema and role on the existing managed database platform, subject to owner-confirmed isolation and durability. The audit reports single-pod DEV storage and shared RDS-style PROD storage; Aurora is inferred, not confirmed. Platform owners SHALL verify engine, writer fencing, and acknowledged-commit durability. Production failover qualification SHALL use a representative managed test database; single-pod DEV restart/restore drills SHALL NOT qualify PROD failover.
+### Requirement: Isolated and admission-compliant deployment
+DEV and PROD SHALL separate identities, credentials, endpoints, and allowed scopes. Kyverno-required compliance labels and an approved registry SHALL be incorporated into release manifests; successful admission, image pull, startup, and actual workload connectivity SHALL each be verified. Deployment SHALL use restricted secrets, non-root privileges, dropped capabilities, a read-only image filesystem where practical, no host mounts, and no Kubernetes token unless required for workload authentication. Failed audit probes SHALL NOT satisfy workload testing.
 
-#### Scenario: Restored database lacks a committed marker
-- **WHEN** a previous dispatch may still exist in Dagster
-- **THEN** missing ledger evidence SHALL NOT permit fresh dispatch before controlled recovery; a generic HA claim SHALL NOT waive this requirement.
+Release gates SHALL exercise duplicates, concurrent confirmations, both retry modes, queued families, response loss, restart commissioning, stale controls, automatic retry gaps, and dependency outages. PROD SHALL begin read-only and enable only tested capabilities. The DEV replica-count discrepancy SHALL be reconciled before capacity assumptions use chart values. Rollback SHALL start disarmed and account for prior submitters just like any replacement.
 
-#### Scenario: Only single-pod database drills have passed
-- **WHEN** production failover behavior remains unverified
-- **THEN** production dispatch SHALL remain gated pending representative failover evidence and platform-owner confirmation.
-
-### Requirement: Supervised lifecycle and bounded work
-Startup SHALL validate configuration and migrated schema, initialize asynchronous clients, verify Slack identity, recover work, and start supervised loops before intake. Migrations SHALL run once per deployment. Work, database acquisition/locks, calls, and response sizes SHALL be bounded; active/unknown reconciliation SHALL retain capacity. Transactions SHALL NOT span external calls. Shutdown SHALL stop intake/claims, drain bounded work, preserve dispatch evidence, and close clients last without canceling Dagster runs.
-
-#### Scenario: Critical loop fails or database becomes unwritable
-- **WHEN** intake can no longer process durably
-- **THEN** it SHALL pause/disconnect explicitly; unexpected loop exit SHALL fail health and terminate, while dependency outages SHALL back off without restart storms.
-
-#### Scenario: Health is evaluated
-- **WHEN** probes run
-- **THEN** liveness SHALL check process/loop supervision without downstream calls; readiness SHALL require initialization, writable storage, critical loops, and Slack connectivity, while Dagster outages SHALL degrade affected capabilities and identify the single-replica webserver dependency explicitly.
-
-### Requirement: Isolated deployment and capability gates
-DEV and PROD SHALL separate Slack apps/tokens, channels, endpoints, identities, and durable configuration. Deployment SHALL use restricted secrets, non-root privileges, dropped Linux capabilities, no host mounts, a read-only image filesystem where practical, and no Kubernetes token unless required by workload authentication. Dispatch SHALL default disabled until the actual workload verifies private access, expected location/schema, effective network restrictions, and disabled launch retries. DEV SHALL exercise thread interaction, both execution modes, selections, automatic retries, crashes, and failover. PROD SHALL begin read-only and enable only validated capabilities.
-
-Environment configuration SHALL record the live Dagster 1.13.1 identities and effective retry defaults from the audit; preview namespaces SHALL resolve their own Service names. Platform owners SHALL reconcile the reported DEV chart declaration of two webserver replicas against the observed one before capacity or availability assumptions rely on it.
-
-#### Scenario: Rollback occurs with active work
-- **WHEN** a release is rolled back
-- **THEN** new dispatch SHALL stop while ledger, admission, observation, and notifications remain recoverable and existing Dagster runs continue.
+#### Scenario: Approved probe image cannot pull
+- **WHEN** admission succeeds but the workload does not start
+- **THEN** the deployment gate SHALL remain open until the actual bot image runs and passes connectivity checks.
 
 ### Requirement: Honest operational objectives
-Production SHALL spread replicas across nodes and preserve one during voluntary disruption. Independent monitoring SHALL cover Slack connectivity, storage/schema failure, unknown dispatch, stuck retries, and stale observations. Documentation SHALL acknowledge the shared cluster failure domain and retain human Dagster/Teleport fallback with usable links or full run IDs. Under normal dependency health, measured latency/recovery objectives SHALL be acknowledgement p99 below two seconds and Slack's three-second deadline; status/error p95 below five/ten seconds; bot durable-work recovery after pod replacement below 60 seconds; active polling every 15 seconds with jitter; terminal notification p95 within 30 seconds; and uncertainty alerting within 60 seconds. The monthly end-to-end availability objective SHALL be 99.9%, including dependency failures and synthetic read probes.
+Under healthy dependencies, the application SHALL measure acknowledgement p99 below two seconds within Slack's three-second deadline, status/error p95 below five/ten seconds, active polling every fifteen seconds with jitter, live-session terminal notification p95 within thirty seconds, and uncertainty alerting within sixty seconds. These SHALL be measured targets, not durable-delivery guarantees. Restart-to-mutation recovery SHALL have no automatic deadline because commissioning requires evidence.
 
-The audited webserver, daemon, and user-code deployments each have one replica in both environments. Two bot replicas SHALL NOT be presented as making those dependencies highly available; readiness reporting and outage drills SHALL account for the webserver's single point of failure. Bot recovery targets SHALL NOT bound Dagster's separate 120-second monitoring cycle, 600-second startup timeout, or uncertain-submission resolution.
+Documentation SHALL state single-bot downtime, the shared cluster failure domain, and audited single-replica Dagster dependencies; it SHALL NOT claim HA or the former durable-work recovery guarantee. Human fallback SHALL retain full run IDs and the approved Teleport access convention. Dagster's separate 120-second monitoring cycle and 600-second startup timeout SHALL NOT be confused with bot response targets.
 
-#### Scenario: Cluster outage affects both replicas
-- **WHEN** command availability is measured
-- **THEN** independent monitoring SHALL detect the outage and include it in the metric; objectives SHALL NOT imply cross-cluster resilience or a guaranteed uncertainty-resolution deadline.
+#### Scenario: Pod or cluster fails
+- **WHEN** availability and recovery are reported
+- **THEN** the outage and lost session work SHALL be visible, and healthy read service after restart SHALL not be reported as restored mutation availability.

@@ -2,29 +2,32 @@
 
 ## Why
 
-Engineers need to inspect and recover Dagster failures from the existing Slack alert thread. The [infrastructure audit](environment-audit.md) grounds this initial bot plan in the reported DEV/PROD deployment; implementation is pending.
+Engineers need to inspect and recover Dagster failures from their existing Slack threads. Database provisioning is a constraint, and core development must proceed independently of Slack setup. The [infrastructure audit](environment-audit.md) grounds the implementation plan.
 
 ## What Changes
 
-- Add deterministic `@bot` commands, structured error details and same-thread progress.
-- Let allowed-channel members prepare operations with requester confirmation.
-- Connect FastAPI to Dagster 1.13.1 over the private HTTP Service on port 80. Keep separate namespaces and explicitly unblock narrow webserver access through the Dagster deployment repository.
-- Coordinate two bot replicas through PostgreSQL, with one active bot-created run family and conservative recovery from uncertain launches.
-- Preserve source inputs, use current code and respect Dagster retries. Enable logs/status/retry first, then verified catalog operations.
-- Keep application policies reusable for a later company AI gateway; phase one has no LLM.
+- Use Dagster GraphQL and bounded memory, with one bot pod/process and no bot database or persistent work store.
+- Require current requester confirmation and fresh evidence before actions; reconcile uncertain outcomes without automatic resubmission. Restart invalidates controls and requires operator rearming.
+- Build a minimal DEV-only mock/live console over shared application services, independently of Slack credentials.
+- Implement Slack mentions, trusted thread binding, membership checks and rendering as a separate adapter/workstream.
+- Preserve both retry modes, logical inputs/current code, Dagster retry/queue rules and the scoped operation catalog.
+- Keep Dagster private on audited HTTP port 80, with explicit cross-namespace policy remediation and deployment admission checks.
+
+The no-database decision replaces two-replica coordination, durable receipt/outbox and automatic failover. GraphQL checks cannot guarantee exactly-once execution or recovery of lost pre-run interactions. Phase one has no LLM; future adapters reuse the same policies.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `slack-operations`: Trusted thread binding, commands, authorization, confirmation, evidence and notifications.
-- `dagster-operations`: Supported operations, faithful execution inputs and retry-family semantics.
-- `execution-runtime`: Durable dispatch, reconciliation, private connectivity, lifecycle and availability.
+- `dagster-operations`: Named GraphQL operations, faithful execution and authoritative run evidence.
+- `execution-runtime`: Single-process admission, volatile state, uncertainty/restart recovery and private deployment.
+- `dev-workbench`: DEV-only console and API for independent mock/live testing of shared services.
+- `slack-operations`: Optional Slack transport, exact thread identity, channel authorization and best-effort replies.
 
 ### Modified Capabilities
 
-None; no implemented baseline exists.
+None; no implemented capability baseline exists.
 
 ## Impact
 
-Requires Python code, an isolated bot database schema/role, Slack configuration, deployment pipeline/manifests, cross-repository network changes, tests and runbooks. Dagster retains execution ownership. The existing alert button supplies the full UUID; preserve its publisher. Verify retry/selection behavior, actual bot connectivity and production-representative database recovery before enabling PROD mutations. Raw compute logs are unavailable; `logs` exposes structured errors.
+Requires Python application/UI code, Slack configuration, delivery manifests, a narrow policy change in the private Dagster deployment repository, tests and operator runbooks. No bot database, schema, migrations or storage provisioning is required. Existing Dagster persistence remains untouched. Raw compute logs are unavailable; expose structured errors. Deliver core/UI, live DEV execution, then Slack integration and controlled PROD rollout.

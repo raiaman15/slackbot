@@ -1,55 +1,49 @@
 # Tasks
 
-The [audit](environment-audit.md) supplies reported facts, not completed implementation. All tasks remain unchecked. Keep verification evidence with the code or controlled environment records; never commit secrets.
+Implementation is pending. The [audit](environment-audit.md) provides reported facts, not completed work. All checkboxes remain unchecked until their verification passes. Core/DEV UI work requires neither Slack setup nor a bot database; Slack integration is a separate workstream.
 
-## 1. Close audit release gates
+## 1. Shared application and offline contracts
 
-- [ ] 1.1 Dagster/job owners: capture pinned 1.13.1 schema/input/union and selection fixtures. Verify ordinary op/dbt failure without automatic run retry, induced worker-crash recovery, pending-child gaps and effective per-run overrides against DEV two / PROD three instance retry defaults.
-- [ ] 1.2 Platform/Dagster owners: change the private Dagster deployment chart/values in DEV and PROD to admit only bot namespace AND pod selectors to webserver TCP 80, preserving existing traffic. Verify allowed bot access and denied unrelated pod/namespace traffic with effective CNI policies.
-- [ ] 1.3 Application/platform owners: supply the private inventory's release-qualified HTTP URLs, deployed location/repository and explicit network-only auth. Verify access from actual bot pods, environment/preview isolation, ambient-mesh status and the intended webserver replica count versus DEV drift.
-- [ ] 1.4 Slack/data owners: capture real publisher/app/workspace/channel IDs/types and the full-UUID button payload; approve membership, redaction/retention and human port-forward instructions. Verify exact trusted extraction without publisher changes or localhost fetching.
-- [ ] 1.5 Database owner: provision an isolated bot schema/role (or dedicated database), restricted credentials and key management; record engine/topology/commit guarantees and bot DEV storage choice. Approve a production-representative non-production failover test environment; a single-pod DEV test cannot clear this gate.
-- [ ] 1.6 Application/platform owners: complete delivery pipeline/configuration using existing ACD/ArgoCD, image tags and ExternalSecrets conventions; verify rendered DEV/PROD manifests, secret references, independent alarm route and cross-repository rollout order.
+- [ ] 1.1 Build the FastAPI lifespan, typed actor/target/intent/result contracts, finite parser and named Dagster adapter boundary; verify shared services have no Slack dependency and startup works with Slack disabled.
+- [ ] 1.2 Add validated mock/live and DEV/PROD settings, single-process runtime, bounded RAM queues/maps and boot identity; verify no database/persistent-store dependency, all mutations disabled every boot, and invalid/mixed profiles rejected.
+- [ ] 1.3 Implement redaction, safe evidence models and structured telemetry; fixture-test secrets/PII, markup, truncation, selection/configuration handling and absence of raw errors/credentials in outputs or tags.
 
-## 2. Build application and persistence
+## 2. DEV workbench — independently deliverable
 
-- [ ] 2.1 Create the Python application with pinned async clients, lifespan and validated settings; verify clean DEV startup/shutdown, invalid-config rejection and dispatch disabled by default.
-- [ ] 2.2 Add the design's ledger migrations, encrypted snapshots and transactional repositories; verify unique keys, state transitions, append-only audit, key handling and clean initialization.
-- [ ] 2.3 Implement bounded pools, receipt capacity reservation, durable work claims and lease fencing; verify saturation preserves receipt deadlines and competing/stale workers cannot overwrite state.
+- [ ] 2.1 Serve the small `/dev` page and typed session/command/operation routes; verify thread-like logs/status/config, mode choice, preview, confirmation and separate proposal/run cancellation use shared services without Slack credentials.
+- [ ] 2.2 Implement fixed startup mock/live mode, curated alert/run fixtures and server-bound DEV targets; verify no browser endpoint/environment/GraphQL override and no mock identity can reach real Dagster.
+- [ ] 2.3 Add DEV authentication, bounded in-memory sessions, CSRF and Origin/Host checks; verify unauthorized/cross-origin access fails, credentials avoid URLs/browser storage, and PROD exposes neither UI assets nor DEV routes.
+- [ ] 2.4 Add polling and explicit busy/expired/unknown/restarted states; verify dropped HTTP responses never auto-replay commands, old-boot controls fail, and mocked failure/retry scenarios are reproducible through automated tests.
 
-## 3. Implement the Dagster adapter
+## 3. Infrastructure and live DEV GraphQL
 
-- [ ] 3.1 Add fixed-endpoint reads and submit-once mutations with schema/union checks; verify the configured HTTP/network-only contract, optional TLS validation, timeouts, redirect refusal, zero launch retries and capability degradation on mismatch. Pin `stopRunningSchedule` and reject excluded schema mutations.
-- [ ] 3.2 Implement complete run/evidence snapshots and both execution modes; verify configuration, op/asset/check/partition selection, null versus empty, lineage and current-code/image conflicts in DEV.
-- [ ] 3.3 Add retry-family and operation-tag discovery; verify effective retries/budgets, preserved queue-policy tags, inherited correlation, actual descendants and ambiguous or persisted-but-unsubmitted runs; never infer exhaustion from the instance flag alone.
+- [ ] 3.1 Platform/application owners: satisfy Kyverno labels and registry rules, publish a pullable image, and complete existing ACD/ArgoCD/ExternalSecrets delivery templates. Verify admission, image pull, startup and required egress as separate gates.
+- [ ] 3.2 Platform/Dagster owners: apply narrow DEV/PROD webserver ingress TCP 80 from bot namespace AND pod selectors, preserving existing traffic. Verify real bot-to-Service GraphQL success and denied unrelated workloads; failed probes/port-forwards do not qualify.
+- [ ] 3.3 Verify private inventory endpoints, network-only auth, deployed location/repository and pinned 1.13.1 schema/union/tag contracts; record ambient-mesh/retry behavior and intended webserver count versus DEV drift. Disable incompatible capabilities.
+- [ ] 3.4 Implement bounded reads, full input/selection snapshots, event pagination and complete provenance/retry discovery. Verify op/asset/check/partition/null-empty fidelity, queue-policy tags, ordinary op/dbt no-retry failure, worker-crash family and pending-child gaps against live DEV.
 
-## 4. Implement Slack interaction and policy
+## 4. Database-free execution and recovery
 
-- [ ] 4.1 Configure DEV/PROD Socket Mode apps and persist-before-ACK receipt handling; verify duplicate delivery, uncertain database commits, reconnects and bounded acknowledgement latency.
-- [ ] 4.2 Implement deterministic mentions, trusted button-URL binding and full-ID fallback; fixture-test `http://127.0.0.1:8080//runs/<full-uuid>`, first-segment display text, wrong publishers/URLs, edits and neighboring/child runs without fetching alert URLs.
-- [ ] 4.3 Add scope and paginated membership checks plus requester-bound expiring confirmations; verify forged/stale/double clicks, another user, removed membership and changed previews cannot dispatch.
-- [ ] 4.4 Build bot-owned thread cards and command help; verify mode choice, effective retry policy, possible queueing, confirmation, proposal cancellation, operation lookup and progress remain in the original thread.
+- [ ] 4.1 Implement current-boot requester-bound five-minute proposals and one-use confirmation; verify changed inputs/code/prior attempts, other users, expired state and duplicate controls cannot dispatch. Keep all approved inputs in memory only.
+- [ ] 4.2 Implement local admission, complete GraphQL prechecks and stable installation/request/operation/source tags; verify same-request discovery, prior attempts across both modes, incomplete scans, active families and retry gaps block duplicate work without claiming distributed exclusion.
+- [ ] 4.3 Implement whole-run re-execution/fresh-copy plans and consume dispatch authority before one POST; verify latest code, faithful selections/lineage, zero transport/proxy retries, and no resubmission after timeout, lost response or generic post-creation error.
+- [ ] 4.4 Implement observation, positive reconciliation and mutation disarming on uncertainty; verify queued/active/pending families retain admission, missing results never prove absence, and failed notifications cannot trigger execution.
+- [ ] 4.5 Implement the operator CLI/local socket through audited platform exec; drill first commissioning, graceful restart, node-partition/stale submitter isolation and unknown launch/automation outcomes. Verify boot/evidence binding, old controls invalidation, no remote unlock or automatic rearm from an empty scan, and zero POSTs if disarming/uncertainty occurs while an approved action awaits checks.
+- [ ] 4.6 Add per-target cancellation and schedule/sensor controls plus optional validated launch/materialization mappings; verify termination-versus-terminal status, late conflicting automation requests even when reads show the desired state, preserved cursors, explicit repeat acknowledgement and excluded/bulk effects remain unavailable.
 
-## 5. Implement dispatch and recovery
+## 5. Slack adapter — separate from core/UI
 
-- [ ] 5.1 Add final prechecks and atomic global launch admission; verify stale inputs return to confirmation and simultaneous requests admit one family, with busy responses instead of queued launches.
-- [ ] 5.2 Persist the unique dispatch marker and permit only its creator's single send after a known commit; fault-test uncertain commits, crashes, lost responses and generic post-creation errors without automatic resubmission.
-- [ ] 5.3 Track known and unknown submissions; verify empty searches, tag-limited queueing, monitoring delays, retry gaps, cancellation pending and stale-worker evidence retain ownership until conclusive family completion.
-- [ ] 5.4 Implement the operator recovery gate and runbook; drill submitter isolation and evidence-based resolution, plus restore/lossy promotion on a database matching PROD failover semantics. Keep PROD writes blocked if that evidence is unavailable; local single-pod drills alone are insufficient.
+- [ ] 5.1 Slack/data owners: supply real app/publisher/workspace/channel identities, scopes, captured alert payload and approved redaction/retention rules. Verify exact full UUID extraction from the audited localhost/double-slash button without publisher changes or URL fetching.
+- [ ] 5.2 Implement optional Socket Mode intake and volatile bounded ACK/deduplication; verify prompt acknowledgement, duplicate events, reconnects, overload and loss on process exit without promising durable receipt or guaranteed redelivery.
+- [ ] 5.3 Implement exact trusted-root resolution, volatile/manual binding and paginated membership policy; verify shortened IDs, edits, ambiguous roots, unauthorized/shared channels and lost binding state fail safely.
+- [ ] 5.4 Map Slack commands/buttons/cards to shared services; verify requester identity, current-boot controls, membership freshness, repeat-attempt previews and same-thread responses without introducing another execution path.
+- [ ] 5.5 Implement bounded in-memory notification retry/coalescing and scoped run lookup after restart; verify revoked destinations, ambiguous posts, exhausted retries and dropped state never reroute evidence or repeat execution.
+- [ ] 5.6 Run real Slack DEV acceptance for logs/status, both retry modes and cancellation; verify scopes, identity, event delivery, root lookup, rendering and membership independently of UI/service tests.
 
-## 6. Deliver safe evidence and the operation catalog
+## 6. Production readiness and completion
 
-- [ ] 6.1 Implement bounded structured-error extraction, safe rendering and redaction before storage/output; test secrets/PII, markup injection, pagination, truncation, human port-forward guidance and explicit unavailable stdout/stderr under `NoOpComputeLogManager`; no Kubernetes-log fallback.
-- [ ] 6.2 Implement transactional outbox, status coalescing and rate-limit handling; verify Slack failures never replay execution and revoked destinations stop delivery without rerouting.
-- [ ] 6.3 Add audit and retention jobs; verify actor-to-run traceability, encrypted snapshot expiry and retention of every unresolved operation's recovery evidence.
-- [ ] 6.4 Implement metadata commands and exact-run graceful cancellation; verify advertised capabilities match supported contracts and cancellation-requested is distinct from terminal.
-- [ ] 6.5 Implement serialized schedule/sensor desired-state controls; verify uncertain changes block conflicting requests and preserve sensor cursors.
-- [ ] 6.6 Add validated launch/materialization presets; verify absent mappings, expanded asset effects and unsupported ranges are refused, and excluded/bulk/destructive controls remain unavailable.
-
-## 7. Deploy and verify
-
-- [ ] 7.1 Add supervised loops, health endpoints and SIGTERM drain; verify dead loops fail health, database loss stops intake, single-webserver outages degrade capabilities without restart storms and shutdown preserves running work.
-- [ ] 7.2 Add two-replica deployment templates, disruption protection, secrets, network restrictions and least privilege; verify GitOps rollout/overlap after the Dagster-side policy change, actual private connectivity and distinct bot/Dagster replica expectations without Kubernetes execution permissions.
-- [ ] 7.3 Add metrics, independent alerts and deployment/rotation/upgrade/rollback runbooks; drill dependency failure, unknown-launch alarms and compatible rollback with the ledger retained.
-- [ ] 7.4 Run DEV acceptance against every spec scenario, including two-replica races, queueing, both failure classes, single-webserver outage and production-representative database recovery; record measured latency/recovery and scenario evidence. Distinguish Dagster detection delay from bot observation latency.
-- [ ] 7.5 Deploy PROD read-only, then enable verified operations through the release gate; record actual environment checks and canary outcomes. Reconcile specs/tasks, validate OpenSpec and archive only after implementation acceptance.
+- [ ] 6.1 Enforce one replica/process, `Recreate`, no HPA/overlapping installation and audited recovery access; verify replacement remains read-only even if an old pod/request may survive. Verify SIGTERM drain, dead-loop failure and no Dagster restart storm.
+- [ ] 6.2 Measure memory/queue bounds, receipt latency, query/scan budgets, observation and delivery behavior; verify active/unknown state is never evicted to admit work and independent alarms detect saturation, missing connectivity and rearm-required state.
+- [ ] 6.3 Drill process-state loss, tagged-run recovery, Dagster outage/storage evidence loss and rollback. Verify no old command/confirmation is replayed, operator evidence gates reopening, and limitations are visible in help/runbooks.
+- [ ] 6.4 Deploy PROD read-only with DEV UI/mock routes absent; repeat actual workload and Slack checks, confirm data-owner approvals and operator isolation procedure, then explicitly commission validated mutations and monitor controlled initial operations.
+- [ ] 6.5 Reconcile delivered behavior and scenario evidence, document no-database availability/delivery limits and remaining owner gates, validate OpenSpec, and archive only after implementation acceptance.

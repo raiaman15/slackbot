@@ -1,8 +1,10 @@
 # Slackbot
 
-Control self-hosted Dagster from its existing Slack failure threads. The FastAPI bot calls Dagster's private GraphQL endpoint in the same Kubernetes cluster.
+Operate self-hosted Dagster through a FastAPI application in the same Kubernetes cluster. Build and test through a small DEV console first; integrate Slack as a separate adapter using the same services.
 
-**Infrastructure-informed plan; implementation pending.** Phase one uses deterministic commands without an LLM:
+**Planning complete; implementation pending. No bot database.** One pod/process uses bounded memory and Dagster GraphQL for run evidence. Commands, confirmations and notifications can be lost on restart. Every boot starts read-only until operator reconciliation; uncertain mutations are never automatically resent. This design trades automatic failover and durable delivery for simpler infrastructure.
+
+Slack interaction remains in the existing failure thread:
 
 ```text
 @bot logs
@@ -10,27 +12,25 @@ Control self-hosted Dagster from its existing Slack failure threads. The FastAPI
 @bot retry
 ```
 
-Replies stay in the alert thread. Mutations require requester confirmation. PostgreSQL coordinates two bot replicas, one active bot-created run family, and recovery from uncertain submissions. Socket Mode requires outbound Slack connectivity without public ingress.
+The DEV UI works without Slack credentials. Its mock/live-DEV modes exercise the same previews, confirmations and execution checks; its routes are absent in PROD. Phase one has no LLM.
 
-The 24 September audit identifies required cross-namespace NetworkPolicy remediation, environment-specific retry settings and database recovery gates. Company infrastructure identifiers stay in controlled deployment configuration.
+## OpenSpec plan
 
-## Implementation plan
+Active change: `add-dagster-slackbot`, using the built-in `spec-driven` schema.
 
-The active OpenSpec change is `add-dagster-slackbot`:
-
-| Artifact | Read for |
+| Artifact | Purpose |
 |---|---|
-| [Infrastructure audit](openspec/changes/add-dagster-slackbot/environment-audit.md) | Reported DEV/PROD facts, blockers and owners |
-| [Proposal](openspec/changes/add-dagster-slackbot/proposal.md) | Scope and capabilities |
-| [Specs](openspec/changes/add-dagster-slackbot/specs/) | Requirements and acceptance scenarios |
-| [Design](openspec/changes/add-dagster-slackbot/design.md) | Architecture, interfaces, storage and recovery |
-| [Tasks](openspec/changes/add-dagster-slackbot/tasks.md) | Implementation and verification checklist |
+| [Audit](openspec/changes/add-dagster-slackbot/environment-audit.md) | Infrastructure evidence, updated decisions and owner gates |
+| [Proposal](openspec/changes/add-dagster-slackbot/proposal.md) | Scope and four capabilities |
+| [Specs](openspec/changes/add-dagster-slackbot/specs/) | Dagster, runtime, DEV workbench and Slack requirements |
+| [Design](openspec/changes/add-dagster-slackbot/design.md) | Interfaces, in-memory state and conservative recovery |
+| [Tasks](openspec/changes/add-dagster-slackbot/tasks.md) | Core/UI first; separate Slack workstream; release checks |
 
-Using Node.js 20.19 or later, run from the repository root:
+With Node.js 20.19 or later, run from the repository root:
 
 ```bash
 npx --yes --package @fission-ai/openspec@1.13.2 openspec validate --all --strict --no-interactive
 npx --yes --package @fission-ai/openspec@1.13.2 openspec instructions apply --change add-dagster-slackbot
 ```
 
-The built-in `spec-driven` schema is configured in [openspec/config.yaml](openspec/config.yaml). Requirements remain ADDED deltas until implemented and archived; baseline specs and archive directories will be created when populated. Read all change artifacts before implementation and keep their task status accurate.
+Requirements remain ADDED deltas until implemented and archived. Read the change artifacts together; company identifiers stay in controlled deployment configuration. Documentation validation does not establish live cluster access or implementation completion.
