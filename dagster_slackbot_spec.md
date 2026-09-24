@@ -1,15 +1,19 @@
 # Dagster Slack Operations Bot — HLD and LLD
 
-Version: 0.2 — thread-mention interaction; detailed design draft for environment verification  
+Version: 0.3 — simplified same-cluster architecture; detailed design for environment verification  
 Prepared: 2026-09-23 UTC; revised: 2026-09-24 UTC  
 Owner: requesting engineering team  
-Implementation: Python, FastAPI, Slack Bolt, PostgreSQL, Kubernetes  
+Implementation: Python, FastAPI, Slack Python SDK, HTTPX, PostgreSQL, Kubernetes  
 Phase 1: deterministic @bot commands inside failure threads; no LLM and no MCP  
 Phase 2: optional natural-language understanding through the company AI gateway, using the same thread interface
 
 ## 1. Purpose and decision status
 
-Provide a dependable Slack interface to inspect Dagster failures and perform explicit, traceable operational actions. Run the application in the same Kubernetes cluster as self-hosted Dagster. Use the internal Dagster webserver API, while employees continue using Teleport and port forwarding for their own access.
+The two applications remain in the same Kubernetes cluster: the existing Dagster installation (including its webserver) and the FastAPI Slack bot. FastAPI calls the webserver's existing `/graphql` API through its private Kubernetes Service. Dagster continues to own run creation, scheduling, execution and retries. Humans can continue using Teleport and port forwarding independently.
+
+The recommended production topology is **one FastAPI deployment with two identical replicas**, an existing internal Dagster Service, and a dedicated bot database on the company's PostgreSQL platform. Each FastAPI process handles the Slack connection and small durable background-work loops. There is no separate gateway deployment, worker deployment, message broker or new Dagster-side API.
+
+Slack reaches the application through an outbound-initiated Socket Mode connection. The API calls that control Dagster are ordinary internal HTTP(S) requests from FastAPI. Neither application needs a public ingress for this workflow.
 
 This document converts the user's answers into concrete design decisions. It is a specification, not a claim that the company's installation has been inspected or that any software has been deployed. No company endpoints, credentials, source repositories, or Slack messages have been accessed.
 
@@ -19,7 +23,19 @@ Decision labels:
 - **Default:** recommended implementation decision, delegated by the user; change through a documented revision if needed.
 - **Verify:** deployment fact or API behavior that must be checked in DEV before enabling the affected capability in PROD.
 
-Revision 0.2 incorporates the user’s explicit correction: invoke the bot by mentioning it inside the existing failure thread and keep the response there. This replaces the earlier slash-command/permalink workflow. Mentions are available in phase 1 and do not depend on an LLM.
+Revision 0.3 incorporates the confirmed two-application topology and simplifies deployment and client integration. Revision 0.2's interaction requirement remains: invoke `@bot` inside the existing failure thread and keep replies, confirmation and progress there, without an LLM.
+
+| Decision | Revision 0.3 |
+|---|---|
+| Application boundary | Reuse the FastAPI application; one deployment/image/entrypoint |
+| Dagster access | Existing webserver ClusterIP Service, configured `/graphql` URL |
+| Slack transport | Async Slack Python SDK Socket Mode and Web API; explicit receipt acknowledgement |
+| Background execution | Supervised async loops inside each FastAPI process; PostgreSQL-backed work |
+| Production replicas | Two identical bot pods; one Uvicorn process per pod; DEV may use one |
+| Durable state | Keep PostgreSQL for deduplication, confirmation, launch admission and recovery |
+| Initial enablement | Logs, status and confirmed retry first; remaining named capabilities enabled after their contract tests |
+
+Sections 5 and 14 describe the physical architecture; sections 8–11 describe the shared process's internal contracts. The terms receiver and worker refer to modules/tasks, not extra services.
 
 ### 1.1 Confirmed requirements
 
@@ -49,7 +65,7 @@ Revision 0.2 incorporates the user’s explicit correction: invoke the bot by me
 3. Use deterministic parsing, buttons for mode selection and explicit confirmation, and no AI dependencies in phase 1.
 4. All enabled channel members have the same permissions. Every mutation needs requester confirmation, expiring after five minutes; no second-person approval by default.
 5. Use PostgreSQL for durable requests, operation state, admission control, audit events, and message delivery work. Do not add Redis or a separate broker initially.
-6. Run two gateway pods and two worker pods, with a highly available PostgreSQL service and independent monitoring.
+6. Run one FastAPI deployment with two identical PROD pods, each with one Uvicorn process, a Socket Mode receiver and durable-work loops. Use existing highly available PostgreSQL infrastructure and independent monitoring.
 7. Hold one global launch slot until a bot-created primary run and its automatic-retry descendants have conclusively finished. Reads and cancellation remain available.
 8. Never automatically resend a Dagster launch whose outcome is uncertain. Reconcile first; retain an explicit unresolved state when evidence is insufficient.
 9. Preserve logical run configuration, partitions, selections, and applicable user/policy tags. Generate new execution identity and lineage fields correctly; do not copy stale execution bookkeeping.
@@ -197,56 +213,85 @@ The database is authoritative. Deleting a message does not cancel an already con
 | Dagster accepted but execution queued | Say `Queued`, not `Running` or `Succeeded` |
 | Slack delivery failed after launch | Keep monitoring; retry only notification work |
 
-## 5. HLD
+## 5. HLD: two applications, direct internal API access
 
 ```mermaid
 flowchart TD
   S["Slack workspace"]
-  G["Gateway pods: FastAPI and Bolt"]
-  P[("PostgreSQL: requests, state, audit, outbox")]
-  W["Worker pods: operations and reconciliation"]
-  D["Dagster webserver: internal GraphQL"]
-  R["Dagster daemon and run workers"]
-  O["Independent monitoring"]
-  S <-->|"Outbound-initiated Socket Mode; Web API"| G
-  G <--> P
-  W <--> P
-  W -->|"Typed queries and mutations"| D
-  D <--> R
-  W -->|"Thread responses"| S
-  G --> O
-  W --> O
+  subgraph K["Existing Kubernetes cluster"]
+    B["FastAPI slackbot deployment: two identical pods"]
+    V["Existing Dagster ClusterIP Service"]
+    D["Dagster webserver: /graphql"]
+    R["Existing Dagster orchestration and run workers"]
+    B -->|"HTTP(S) queries and mutations"| V
+    V --> D
+    D -->|"Existing execution path"| R
+  end
+  P[("Existing PostgreSQL platform: bot database")]
+  B -->|"Opens Socket Mode connection"| S
+  S -->|"Mentions and buttons over that connection"| B
+  B -->|"Web API: replies in original thread"| S
+  B <--> P
 ```
 
-The gateway and worker deployments use one codebase/image with different entrypoints. PostgreSQL is a separate service, preferably the company's existing HA platform. Use a dedicated bot database/schema and database role; never write Dagster's storage tables directly.
+PostgreSQL may be inside or outside the cluster according to existing platform practice. Reuse an approved managed instance if available, with a separate bot database and role. It may share database infrastructure with other applications if permitted, but the bot never accesses Dagster's storage tables. Existing Dagster storage and internal execution components are omitted from this diagram for clarity; they remain owned by Dagster.
 
-### 5.1 Component responsibilities
+### 5.1 What runs inside FastAPI
 
-| Component | Responsibilities | Must not do |
-|---|---|---|
-| Slack gateway | Transport verification, local allowlist checks, parsing, durable receipt, fast acknowledgements, health | Execute Dagster operations inline or keep sole operation state in memory |
-| Application services | Authorization, target resolution, preparation, confirmation, policy, admission | Trust client-supplied actor/target changes or expose arbitrary query execution |
-| Dagster adapter | Versioned GraphQL documents, union/error mapping, canonical run snapshots, retry-family observations | Execute jobs locally in the bot process |
-| Workers | Claim durable work, prepare/execute/read, reconcile runs, deliver outbox | Blindly retry uncertain launch mutations |
-| PostgreSQL | Source of truth for intents, operation lifecycle, fences, slot, audits and outbox | Serve as a substitute for Dagster run state |
-| FastAPI | Lifespan management, health/readiness/metrics and narrow internal diagnostics | Public unauthenticated mutation API |
+| Module in the same process | Responsibility |
+|---|---|
+| Slack receiver | Receive authenticated envelopes, apply local context checks, persist receipt, acknowledge promptly |
+| Command/application services | Parse deterministic commands; resolve the failure; authorize, prepare and confirm an action |
+| Dagster adapter | Send fixed, versioned GraphQL documents through one pooled asynchronous HTTP client |
+| Durable-work loops | Claim database work, run reads/approved mutations, reconcile run state and send Slack outbox messages |
+| FastAPI lifecycle and routes | Start/supervise/stop the modules; provide health and restricted diagnostics |
 
-### 5.2 Connectivity options
+Keep these as Python modules with typed interfaces. They do not call each other through HTTP and do not need a microservice boundary. Slack callbacks perform only bounded receipt/confirmation transactions; slower work runs after acknowledgement from the durable work table. Section 11.6 defines lifecycle and supervision.
 
-| Option | Fit | Requirements | Decision |
-|---|---|---|---|
-| Socket Mode | Private VPC workload with allowed egress | Slack HTTPS/WSS, app-level token, reconnect handling | Default |
-| Public HTTPS callbacks | Company already provides approved ingress | TLS, signature/timestamp verification, rate limiting, only Slack routes exposed | Supported transport alternative |
-| Approved egress proxy with Socket Mode | Direct internet egress disallowed | HTTPS/WSS proxy support and tested reconnect behavior | Supported deployment variation |
-| External ingress relay | Neither normal route available | Additional trusted service, actor integrity and replay design | Requires separate design; not initial implementation |
+Use the Slack Python SDK's asynchronous Socket Mode client and `AsyncWebClient` directly. Only `app_mention` events and button interactions are needed initially, so a small explicit dispatcher suffices. This gives direct control over persist-before-ACK ordering without requiring Bolt middleware. The SDK owns WebSocket/reconnect mechanics; the application does not implement that protocol itself [S29].
 
-Changing Slack transport does not expose Dagster publicly. Teleport is not in the bot's runtime data path under the confirmed direct-access policy. No unattended employee `tsh` session is used. If that policy changes, add a service identity/Teleport access adapter and revalidate connectivity.
+### 5.2 The exact FastAPI-to-Dagster connection
 
-### 5.3 Internal service identity
+Configure the full endpoint once, for example:
 
-Use a dedicated Kubernetes service account, network policy, workload labels and any existing internal authentication mechanism. A Kubernetes service account alone does not automatically authenticate HTTP requests to an otherwise unauthenticated Dagster webserver. Verify whether a proxy, mTLS, header-based identity or plain network access is actually used.
+```text
+DAGSTER_GRAPHQL_URL=http://dagster-webserver.dagster.svc.cluster.local:3000/graphql
+```
 
-Only worker pods require mutation access to Dagster. Use a configured internal service address; never derive API destinations from Slack input. Record the verified human actor in the bot audit ledger. Bot-written Dagster tags aid correlation, but are not a substitute for backend authorization or a tamper-proof audit log.
+This is an illustrative address. Replace the Service name, namespace, cluster domain, **Service port**, scheme and any configured webserver path prefix with actual values. The Service port can differ from the container's target port. Reuse the Helm-created webserver Service when one exists [S24, S25].
+
+For a Service in the bot's namespace, a short Service name also resolves. Use a namespace-qualified name for clarity and for different namespaces. Do not use `localhost`, a pod IP, the employee's port-forward URL or a public UI hostname as the bot endpoint. Dagster must listen on the pod interface and the Service must have ready webserver endpoints.
+
+Requests have this wire shape; documents and variables are built by the adapter, never accepted as arbitrary Slack input:
+
+```http
+POST /graphql
+Content-Type: application/json
+
+{"operationName":"GetRun","query":"<versioned document>","variables":{"runId":"<full UUID>"}}
+```
+
+The webserver already provides this API [S9]. The bot needs no sidecar, shared code volume, new FastAPI service in front of Dagster, local Dagster instance, shell command, Kubernetes API client, Teleport session or port forward. Dagster's existing daemon/coordinator/launcher continues to perform the actual execution. The bot reports a returned run ID and observes status; it does not run an ingestion job itself.
+
+### 5.3 Slack connectivity
+
+| Option | Decision |
+|---|---|
+| Socket Mode over allowed outbound HTTPS/WSS | Implement first; no Slack-facing public endpoint |
+| Socket Mode via an existing approved egress proxy | Use if required by company networking; verify reconnects |
+| Slack signed HTTPS callbacks | Documented alternative only if company ingress is preferred or outbound WebSockets are unavailable |
+
+Implement one transport at a time. Both would feed the same receipt and application services. Socket Mode needs Slack app and bot tokens. The HTTP alternative additionally needs TLS ingress and raw-body Slack signature/timestamp checks. Switching Slack transport does not change Dagster access or expose Dagster publicly [S2].
+
+### 5.4 Service identity and access control
+
+Same-cluster routing is connectivity, not authentication. Retain any existing service mesh/mTLS or internal proxy authentication and configure its supported workload credentials. If the internal Dagster endpoint is intentionally unauthenticated HTTP, access relies on the cluster's enforced network boundary; confirm that boundary before enabling writes. Do not assume Slack authorization makes the Dagster endpoint independently secure.
+
+The bot's Kubernetes service account identifies the workload but does not automatically authenticate an HTTP request to Dagster. Ordinary Service access requires no Kubernetes Pod, Job, `exec` or cluster-admin permissions [S27]. Keep the Dagster launcher's existing execution permissions with Dagster. Disable automatic service-account-token mounting for the bot unless an existing workload-identity integration requires it.
+
+Allow traffic from the bot pods to the selected webserver pods on the required port, and preserve the existing Dagster components' access. Configure both source egress and destination ingress where policies isolate them. NetworkPolicy enforcement depends on the cluster network plugin; it is not supplied by merely creating a Service [S26]. Section 14.3 lists all required network paths.
+
+Use a fixed configured endpoint and a dedicated database role. Record the authenticated Slack human separately in every operation/audit record. Never infer service credentials, destinations, job authority or actor identity from message text.
 
 ## 6. Slack integration and target resolution
 
@@ -270,7 +315,7 @@ Events and history access are separate: `app_mention` delivers the command, whil
 
 Socket Mode: accept events through the SDK's authenticated connection; validate configured `team_id`, `api_app_id`, channel and supported payload type. Preserve transport identity into the application context. In HTTP mode, verify Slack signatures against the original raw body and reject stale timestamps before parsing business input. Never use a deprecated verification token.
 
-Accept new human `app_mention` messages for this bot only. Requester identity is `event.user`, never `authorizations[].user_id` from the installation envelope. Ignore self events, other bot-originated commands (`bot_id`/`bot_profile`), absent human requester IDs, message edit/delete events, unsupported subtypes and hidden/system events. Keep the SDK's self-event filter enabled. Ordinary unmentioned thread replies are not commands. These rules apply to the invoking event, not to the root failure alert, which is expected to be bot-authored.
+Accept new human `app_mention` messages for this bot only. Requester identity is `event.user`, never `authorizations[].user_id` from the installation envelope. Ignore self events, other bot-originated commands (`bot_id`/`bot_profile`), absent human requester IDs, message edit/delete events, unsupported subtypes and hidden/system events. Implement explicit self-event and bot-originated-event rejection in the SDK receiver; do not assume a high-level framework filter is present. Ordinary unmentioned thread replies are not commands. These rules apply to the invoking event, not to the root failure alert, which is expected to be bot-authored.
 
 Extract and remove the exact `<@BOT_USER_ID>` mention token; do not rely on display-name text. Bound command length, reject unknown flags and parse the remainder through a finite grammar. Preserve Slack timestamps as strings. An edited command never creates or changes a mutation; the person must send a new explicit command and confirm its own proposal.
 
@@ -418,6 +463,25 @@ Only terminal failure states are default eligible for manual retry; canceled/suc
 
 Runs belonging to an active backfill are not eligible for bot relaunch in phase 1. Native re-execution can interact with backfill tags/bookkeeping; an explicit backfill-coordination design is required before enabling this case. For completed backfills, verify tag filtering and original selection before permitting a standalone copy.
 
+### 8.6 HTTP adapter implementation contract
+
+Use one long-lived `httpx.AsyncClient` per FastAPI process, opened and closed by lifespan. All Dagster calls go through this adapter; do not mix SDK calls, direct database reads and shell commands. `DagsterGraphQLClient` is synchronous and does not cover the complete required evidence/re-execution interface; using one async transport keeps this application consistent [S28, S30].
+
+| Concern | Required behavior |
+|---|---|
+| URL/auth | Full configured URL; optional required internal credentials; no request-selected host; do not follow redirects |
+| Documents | Named `.graphql` files and typed variable/result mappings, pinned to deployed schema |
+| Connections | Reused pool; initial limit 10 connections/process; bounded concurrency and response size |
+| Deadlines | Initial connect/pool timeout 2 seconds; read/write timeout 10 seconds; overall invocation deadline 15 seconds; tune in DEV |
+| Queries | Explicit bounded read retries with jitter allowed; no retries based only on POST method |
+| Launch mutations | HTTP transport retries zero; no generic retry decorator; service mesh/proxy retries disabled for these requests |
+| Errors | Check HTTP status, top-level GraphQL errors and result `__typename`; validate returned IDs; redact details |
+| Ambiguous writes | Timeout, connection loss after dispatch or unclassified server failure means unknown submission; reconcile without resending |
+
+GraphQL reads and writes both commonly use HTTP POST. Only named read operations may enter the read-retry path. Keep a distinct `submit_once` method for launch/re-execution so retry behavior cannot be inherited accidentally. Configure any corporate proxy explicitly; private cluster traffic must use the intended internal route. TLS verification remains enabled where HTTPS is configured [S31].
+
+Network timeouts are an application deadline, not a cancellation of work already accepted by Dagster. Shutdown/coroutine cancellation after dispatch follows the same unknown-result recovery rules. Capability errors should fail that command without disabling unrelated compatible reads.
+
 ## 9. Durable operation model
 
 ### 9.1 State machine
@@ -485,7 +549,9 @@ Separate transport acknowledgement from user-visible replies. An Events API/Sock
 
 For accepted mentions, perform fast local validation, commit a deduplicated receipt and work item under a bounded database deadline, then acknowledge the event/envelope. No Slack history or Dagster calls occur on this path. Under HTTP mode acknowledge the Events API request; under Socket Mode acknowledge the envelope. Reject/ignore unsupported or disallowed events promptly without creating work or causing repeated retries.
 
-Do not assume persistence inside an ordinary Bolt event listener happens before acknowledgement: event listeners may be auto-acknowledged by the SDK. Put the small durable-ingress step in the receiver/pre-ack path, or use verified SDK configuration/middleware with a contract test proving its ordering. Never let both a receiver and a listener enqueue the same command independently.
+Use the asynchronous Slack SDK Socket Mode request listener as the single receipt path. For supported events/interactions, call `send_socket_mode_response(SocketModeResponse(envelope_id=...))` only after the receipt or confirmation transaction commits. The SDK example's acknowledge-first ordering must be adapted to this durability requirement [S29]. Test the actual ordering and duplicate delivery behavior. Do not add a second listener that independently enqueues the same command.
+
+Dispatch supported `events_api`/`app_mention` and `interactive`/`block_actions` envelopes explicitly. Acknowledge and ignore unsupported types promptly. Maintain request-size limits, channel/workspace/app checks, self/bot filters and exact actor extraction in this adapter. The optional HTTP adapter must enforce the same receipt order after signature verification.
 
 Target normal acknowledgement under one second, within the platform's three-second deadline [S2, S7]. Start with a 500 ms database deadline and verify it in DEV. An ACK signifies durable receipt only; it does not signify authorization, confirmation or launch.
 
@@ -650,9 +716,9 @@ Transport handlers and phase-2 agents reuse these services. Keep policy in appli
 
 | Route | Purpose | Exposure |
 |---|---|---|
-| `GET /health/live` | Process/event-loop health | Kubernetes probe only |
-| `GET /health/ready` | Initialized application and durable store readiness | Kubernetes/internal |
-| `GET /health/dependencies` | Slack, Dagster, database and worker observations | Internal authenticated diagnostics |
+| `GET /health/live` | Process/event-loop and critical-loop supervision health; no downstream network calls | Kubernetes probe only |
+| `GET /health/ready` | Initialized state, writable durable store, running critical loops and established Slack session | Kubernetes/internal |
+| `GET /health/dependencies` | Slack, Dagster, database and background-loop observations | Internal authenticated diagnostics |
 | `GET /metrics` | Metrics without log contents/config secrets | Restricted monitoring |
 | `POST /slack/events` | Optional HTTP transport adapter | Enabled only for HTTP mode, Slack signature verified |
 
@@ -686,16 +752,36 @@ Schedule/sensor start and stop are modeled as setting a target state, not toggli
 
 Cancellation targets one exact run. Check termination capability, request normal/safe termination, and poll for observed completion. `Cancellation requested` is distinct from `Canceled`. Stopping a schedule or sensor does not cancel already-created runs. None of these commands resets a sensor cursor.
 
+### 11.6 One-process lifecycle and durable background work
+
+Use FastAPI's lifespan context to own clients and supervised tasks [S32]. The application process is the scheduling host; PostgreSQL is the durable source of work.
+
+Use Psycopg 3 async connections with `psycopg_pool.AsyncConnectionPool`; no synchronous database or HTTP calls may run on the shared event loop [S33, S34]. Start with one pool per process, minimum two and maximum ten connections, opened/closed by lifespan. Limit all non-receipt database work to eight concurrent acquisitions so the pool retains capacity for short receipt/confirmation transactions. Bound pool acquisition and SQL/lock waits within the ingress transaction's 500 ms deadline. Include database-capacity planning for two normal pods and a temporary third rollout pod. Pool sizing is a DEV-testable default, not a latency guarantee.
+
+1. **Startup:** validate configuration and migrated schema, create database/Slack/Dagster clients, verify bot identity and recover durable work state. Migrations run once as a deployment step. Start work/reconciliation/outbox loops, then connect Socket Mode.
+2. **Receive:** perform the bounded persistence/ACK path in section 9.4. Never wait for a Dagster run or Slack history query here.
+3. **Work:** poll ready durable work with short `SKIP LOCKED` claims. Start with up to four safe read/preparation tasks per pod, one dispatch executor per pod, and separate bounded reconciliation/outbox loops. Dispatch capacity remains one active family **across the application**, enforced by the database slot. Prioritize active/unknown-run observation so ordinary reads cannot starve recovery.
+4. **Supervise:** transient dependency failures use bounded backoff and health reporting. An unexpected exit of a critical loop closes intake, marks unhealthy and terminates the process for Kubernetes restart. Do not leave a healthy-looking HTTP server with a dead receiver/worker.
+5. **Drain:** on SIGTERM, mark not ready, explicitly disconnect/pause Socket intake, stop new work claims, then drain bounded calls/transactions. Preserve dispatch markers and any late response evidence. Close clients last. Start with a 45-second termination grace period; test forced termination during dispatch.
+
+Readiness does not control an already-open outbound Slack connection. If PostgreSQL cannot persist receipts, stop accepting durable work and manage the Socket connection explicitly; rely on the independent alarm as Slack retries are finite. A Dagster outage or schema mismatch is a degraded capability state, not a reason for liveness restart storms: keep help, operation history and recovery reporting available where possible.
+
+Do not use FastAPI `BackgroundTasks`, bare untracked `create_task()` calls, in-memory queues or in-memory locks as the only record of an accepted operation. Supervised asyncio tasks may execute work, but every work item/state change already exists durably. Do not hold a database transaction while waiting on Slack or Dagster. Safe claims can transfer between replicas; a dispatch marker cannot authorize a second automatic launch.
+
+There is no leader election or separate scheduler service initially. Both replicas can receive Slack events and claim safe work. Database uniqueness, leases and the launch slot provide coordination, including when a rolling update briefly adds a third pod. If background CPU/volume eventually interferes with receipt latency, the existing modules may later be split into a worker deployment using the same contracts; that is a measured scaling change, not a phase-1 dependency.
+
 ## 12. Main sequences
+
+Receiver and Worker below are logical tasks inside the same FastAPI application. A task may be claimed by either replica through PostgreSQL; these diagrams do not introduce separate deployments.
 
 ### 12.1 Fetch structured failure evidence
 
 ```mermaid
 sequenceDiagram
   participant U as Slack
-  participant G as Gateway
+  participant G as FastAPI receiver
   participant P as PostgreSQL
-  participant W as Worker
+  participant W as FastAPI work loop
   participant D as Dagster
   U->>G: @bot logs inside failure thread
   G->>P: Commit receipt and read task
@@ -715,9 +801,9 @@ The Slack participant represents its APIs as well as the person; verification do
 ```mermaid
 sequenceDiagram
   participant U as Slack
-  participant G as Gateway
+  participant G as FastAPI receiver
   participant P as PostgreSQL
-  participant W as Worker
+  participant W as FastAPI work loop
   participant D as Dagster
   U->>G: @bot retry inside failure thread
   G->>P: Commit preparation request
@@ -784,19 +870,21 @@ Encrypt sensitive configuration snapshots with a key from company secret/key man
 
 ### 14.1 Deployment units
 
-| Unit | Initial deployment recommendation |
+| Unit | Production recommendation |
 |---|---|
-| `opsbot-gateway` | Two replicas; one Uvicorn process and one managed Slack connection per pod |
-| `opsbot-worker` | Two replicas; PostgreSQL-backed claiming and reconciliation |
-| PostgreSQL | Company HA service/operator, dedicated bot database/role, backups and PITR |
-| Migration job | One controlled job per deployment; not independent auto-migration in each replica |
-| Monitoring | Existing metrics/log/alert platform, with external cluster-health coverage |
+| Existing Dagster application | Reuse its webserver Service, daemon, code location, launcher and storage |
+| FastAPI `slackbot` application | One Deployment, two identical replicas; one Uvicorn process per container; Socket receiver and all work loops in that process |
+| PostgreSQL | Existing company HA service/operator, dedicated bot database/role, backups and PITR |
+| Migration job | One controlled schema-migration step per deployment; no per-pod auto-migration |
+| Monitoring | Existing metrics/log/alert platform, with independent cluster-health coverage |
 
-Starting pod requests: gateway 100m CPU/256 MiB; worker 200m CPU/512 MiB. Initial memory limits: 512 MiB and 1 GiB respectively. These are sizing hypotheses, not measured capacity requirements. Load/failure tests must establish appropriate limits and CPU policy before PROD.
+DEV may use one bot replica. PROD uses two because operational availability is critical. This is one application deployment, not two services with separate responsibilities. A single PROD replica is only a reduced-availability variation: pod restart/rollout interrupts all intake. Database coordination remains mandatory even with one replica because restarts and deployment overlap do not prove a launch never happened.
 
-Spread replicas across nodes; use disruption budgets with one available replica per deployment and rolling updates that preserve connectivity. Handle SIGTERM by stopping intake/claims, completing short transactions, and recording in-flight dispatch evidence. Do not cancel Dagster jobs when a bot pod terminates.
+Starting per-bot-pod request: 250m CPU/512 MiB; initial memory limit 1 GiB. These are sizing hypotheses for the combined process, not measured capacity requirements. Keep work bounded and validate burst/large-error cases. Use node spreading, a PodDisruptionBudget with `minAvailable: 1`, and a rolling update with `maxUnavailable: 0`, `maxSurge: 1`. Scheduling capacity must support the temporary third pod; a PDB does not prevent involuntary node loss.
 
-Use FastAPI lifespan for startup/shutdown and one server process per container under Kubernetes replication [S12]. Avoid development reload in production. Do not accidentally create multiple Socket Mode connections by spawning untracked web workers.
+Run `uvicorn opsbot.main:app --host 0.0.0.0 --port 8000 --workers 1` with lifespan enabled and without reload. Kubernetes provides process replication [S12]. Integrate these lifecycle tasks into the existing FastAPI application rather than starting a second Uvicorn server in the same pod. A private bot Service is only needed for existing internal HTTP/metrics consumers; Socket Mode and pod probes do not require a public Service or ingress.
+
+Probe local `/health/live` and `/health/ready`; use a startup probe to permit initialization. Section 11.6 governs background-task health and termination. Killing a bot pod never cancels a Dagster run.
 
 PostgreSQL must have a fenced single writer and preserve acknowledged dispatch-marker commits through permitted automatic failover. Verify the provider's actual synchronous replication/promotion contract. If promotion can lose committed ledger entries, dispatch must latch disabled before resuming on the promoted database and require full operation/run reconciliation. An HA label alone does not establish the durability needed to avoid repeating a lost launch marker. Apply the restore procedure to any potentially lossy promotion, not only manual backup restoration.
 
@@ -816,7 +904,12 @@ slack:
   trusted_alert_publisher_ids: [REQUIRED]
   allow_shared_channels: false
 dagster:
-  internal_graphql_url: REQUIRED
+  internal_graphql_url: REQUIRED  # DAGSTER_GRAPHQL_URL; existing private webserver Service
+  auth_mode: REQUIRED             # existing_mesh, existing_proxy, or verified_network_only
+  http_connect_timeout_seconds: 2
+  http_read_write_timeout_seconds: 10
+  http_overall_deadline_seconds: 15
+  http_max_connections_per_process: 10
   human_url_base: null
   code_location: REQUIRED
   allowed_repositories: [REQUIRED]
@@ -827,7 +920,18 @@ execution:
   confirmation_ttl_seconds: 300
   automatic_launch_http_retries: 0
   enable_from_failure: false
-  dispatch_enabled: true
+  dispatch_enabled: false        # enable after DEV and PROD read-only verification
+runtime:
+  uvicorn_workers_per_pod: 1
+  safe_work_concurrency_per_pod: 4
+  dispatch_concurrency_per_pod: 1  # global slot still controls admission
+  termination_grace_seconds: 45
+database:
+  driver: psycopg_async
+  pool_min_per_process: 2
+  pool_max_per_process: 10
+  max_non_receipt_acquisitions: 8
+  ingress_transaction_deadline_ms: 500
 worker:
   safe_task_lease_seconds: 30
   lease_heartbeat_seconds: 10
@@ -837,17 +941,40 @@ worker:
 
 `REQUIRED` is a placeholder, not a usable value. Repository names are resolved within the confirmed one code location and allowlisted; do not assume one code location necessarily has a single repository.
 
-Secrets are separate: Slack app token, Slack bot token, PostgreSQL connection secret, encryption-key reference and any actual internal Dagster credentials. HTTP transport additionally needs the Slack signing secret. Do not commit these values in manifests.
+Secrets are separate: Slack app token, Slack bot token, PostgreSQL connection secret, encryption-key reference and any actual internal Dagster credentials. Use the platform secret mechanism; pass the full internal URL through `DAGSTER_GRAPHQL_URL` and the database secret through `DATABASE_URL`. No token is invented for a self-hosted endpoint that has no configured token authentication. HTTP transport additionally needs the Slack signing secret. Do not commit these values in manifests.
 
 Human URL base is deliberately optional: a cluster-internal service URL will not work from employee laptops. Verify the existing alert's link/port-forward convention. If no stable human link exists, show the full run UUID and established port-forward instructions rather than fabricating a clickable URL.
 
 ### 14.3 Network and runtime restrictions
 
-Allow gateway/worker egress to required Slack APIs, PostgreSQL, DNS and observability; allow worker egress to the configured Dagster service. An egress proxy may handle domain restrictions because standard Kubernetes NetworkPolicy does not universally enforce hostnames.
+| Source | Destination | Purpose |
+|---|---|---|
+| Bot pods | Cluster DNS | Resolve internal Services and approved Slack/DB hosts |
+| Bot pods | Existing Dagster webserver pods via ClusterIP Service | Configured TCP port, HTTP(S) `/graphql` |
+| Bot pods | Slack API and Socket Mode endpoints, or approved egress proxy | Outbound HTTPS/WSS; dynamic Socket endpoint handling |
+| Bot pods | PostgreSQL service | Dedicated bot database, configured connection/authentication |
+| Bot pods | Existing observability/secret infrastructure when required | Platform integrations only |
+| Kubelet/approved monitoring/internal consumers | Bot HTTP port | Health, metrics, existing internal API consumers |
 
-Use namespace/service labels and service accounts to restrict internal ingress. If Dagster's internal endpoint uses HTTP, document that explicitly; where existing TLS is used, validate certificates. Never solve certificate errors with `verify=False`.
+The networking owner must verify both bot egress and Dagster ingress. For different namespaces, combine namespace and pod selectors in the same NetworkPolicy peer to target the intended workload. Policies are additive: a broad existing allow rule is not narrowed by adding another restrictive rule. Preserve webserver ingress required by other Dagster components and existing human-access infrastructure when changing isolation [S26].
 
-Run containers as non-root with dropped Linux capabilities, a read-only image filesystem where practical, restricted secret access and no host mounts. These are standard deployment settings, not extra user-visible approval steps.
+Use actual workload labels and target ports from the running Service. Do not apply illustrative selector guesses to PROD. The Service routes traffic; NetworkPolicy selects workloads/IP ranges, not a Service's URL path. Standard policies cannot grant only GraphQL query fields or universally enforce external DNS names; use existing mesh/proxy controls where required. Use the company's DNS policy, including node-local DNS handling if deployed.
+
+Keep the webserver Service internal; no new LoadBalancer/NodePort/public ingress. Reuse existing mTLS or HTTP authentication instead of introducing a bespoke proxy solely for the bot. If approved internal HTTP is used, document that it is not encrypted at this layer. With HTTPS, validate certificates; never set `verify=False`.
+
+Run the bot as non-root, drop Linux capabilities, use a read-only image filesystem where practical, and restrict secret access. Give it no Kubernetes resource-mutation roles or host/shared Dagster-storage mounts. Set `automountServiceAccountToken: false` when compatible with the existing identity mechanism. Changes to infrastructure are performed by the deployment pipeline/platform operators, not by the Slack bot.
+
+### 14.3.1 Same-cluster connectivity acceptance procedure
+
+Before Slack write enablement, the platform/Dagster owners verify from the actual FastAPI workload context:
+
+1. Identify the existing webserver Service name, namespace, Service port, ready endpoints and actual listening address. Record the supported GraphQL base path and internal auth mechanism.
+2. Resolve the configured Service DNS and issue a harmless schema-compatible read to `/graphql`. Verify a GraphQL response and expected code location; TCP success or an HTML login page is insufficient.
+3. Verify the permitted request through the real workload labels/identity, mesh and egress rules. Verify an unapproved workload cannot use a network-only protected endpoint. A generic debug pod with different labels is not an equivalent access test.
+4. Confirm the Dagster adapter has no transparent launch retries, including service mesh policies, and that DEV writes use a DEV endpoint and credentials.
+5. Exercise one test failure end to end in DEV: in-thread logs/status, both retry modes, returned run ID, observed completion, then bot restart during tracking. Existing Dagster failures continue to post normally.
+
+This is a deployment verification procedure, not a request to grant the bot `kubectl` access. The current document update does not inspect or change the company's cluster.
 
 ### 14.4 Availability limitations
 
@@ -886,8 +1013,8 @@ Alert on zero Slack sessions, durable-store failure, schema mismatch affecting c
 | Failure | Required behavior |
 |---|---|
 | Slack reconnect/delivery repeats | Receipt/confirmation deduplication; recover same operation |
-| Two gateway pods receive related interactions | Shared database state; one confirmation transition |
-| Gateway dies after durable commit before ACK | Operation remains; retried delivery returns same identity |
+| Two FastAPI replicas receive related interactions | Shared database state; one confirmation transition |
+| FastAPI receiver dies after durable commit before ACK | Operation remains; retried delivery returns same identity |
 | DB unavailable before known commit | Explicit unavailable response; no claimed acceptance |
 | DB commit outcome uncertain | Same operation ID; resolve commit rather than create replacement |
 | Worker dies during read preparation | Lease retry safe work |
@@ -920,7 +1047,7 @@ Alert on zero Slack sessions, durable-store failure, schema mismatch affecting c
 5. **Automatic retries:** pending gaps, inherited operation tags, successful child, exhausted retry policy, stuck daemon and manual/automatic race visibility.
 6. **Slack integration:** real in-thread mentions several replies deep; exact root extraction without a permalink; same-thread mode/confirmation/progress cards; event-ID deduplication; verified persist-before-ACK ordering; bot-loop prevention; expiry recovery; channel removal; scopes and delivery failures.
 7. **Data handling:** representative errors/configuration, credential/PII patterns, Slack markup escaping, truncation, purge behavior and encrypted snapshot access.
-8. **Operational recovery:** database restore with dispatch disabled, secret rotation, schema mismatch, worker/gateway rolling restart, bot removal and external alarm delivery.
+8. **Operational recovery:** database restore with dispatch disabled, secret rotation, schema mismatch, combined FastAPI pod rolling restart and critical-loop failure, bot removal and external alarm delivery.
 
 Test the real installed version in DEV. Mock-only tests cannot establish Dagster re-execution or Slack behavior.
 
@@ -950,11 +1077,17 @@ Test the real installed version in DEV. Mock-only tests cannot establish Dagster
 | AC-20 | Bare @bot shows actions; unknown wording, unmentioned yes, edits, self/bot messages and unthreaded run requests never trigger a launch |
 | AC-21 | Repeated event ID cannot enqueue duplicate work; new events cannot silently retarget the root binding to a retry child |
 | AC-22 | Tests prove durable receipt precedes SDK/transport ACK for accepted app_mention events |
+| AC-23 | Actual FastAPI pods reach the existing Dagster Service `/graphql` without Teleport, port forwarding or Kubernetes API permissions |
+| AC-24 | Combined-process startup/shutdown is correct; dead critical loop cannot leave a healthy-looking idle server; async database access and bounded background load preserve receipt latency |
+| AC-25 | Two replicas and rolling-update overlap preserve dedupe/slot safety; a replaced pod resumes durable tracking without relaunch |
+| AC-26 | PostgreSQL outage stops durable intake explicitly; readiness alone is not relied on to close Socket Mode |
+| AC-27 | Internal authentication/network boundaries and existing Dagster component access are verified with actual identities/labels |
+| AC-28 | A Dagster outage degrades operations without a bot liveness-restart storm; recovery does not resend unknown mutations |
 
 ### 16.3 Rollout
 
-1. Capture missing deployment facts and real redacted alert samples.
-2. Build schema-pinned adapter, Slack transport and durable operation infrastructure.
+1. Capture missing deployment facts and real redacted alert samples; verify existing Service DNS, GraphQL path and workload access using section 14.3.1.
+2. Build the async schema-pinned adapter, async SDK Socket receiver and durable operation infrastructure within the existing FastAPI application.
 3. Deploy DEV read operations; validate run/thread identity and redaction.
 4. Enable DEV launch/cancel and automation controls individually; run semantic and fault-injection tests.
 5. Deploy PROD with dispatch disabled/read-only; verify actual channel/identity/network/schema settings.
@@ -968,11 +1101,11 @@ Rollback disables new dispatch but leaves read/reconciliation/notification worke
 ```text
 src/opsbot/
   main.py
-  worker_main.py
+  runtime.py              # lifespan, task supervision, bounded work/reconcile/outbox loops
   settings.py
   domain/                 # intents, states, errors, typed snapshots
   application/            # commands, policy, prepare, confirm, dispatch, reconcile
-  adapters/slack/         # Bolt handlers, parsing, history, cards, delivery
+  adapters/slack/         # async SDK receiver, parsing, history, cards, delivery
   adapters/dagster/       # versioned GraphQL documents and result mapping
   adapters/postgres/      # repositories, transactions, work claims, outbox
   observability/          # logs, metrics, traces, redaction
@@ -985,7 +1118,7 @@ deploy/                   # Kubernetes/Helm and environment templates
 docs/                     # deployment, command guide, recovery, upgrade procedure
 ```
 
-This is a proposed repository structure; no implementation repository has been created.
+This is the proposed implementation structure for `raiaman15/slackbot`. The repository currently contains the specification and README; runnable application code and deployment manifests remain to be implemented. A single entrypoint starts the whole FastAPI application.
 
 | Work package | Deliverables | Dependency |
 |---|---|---|
@@ -995,7 +1128,7 @@ This is a proposed repository structure; no implementation repository has been c
 | Durable core | Tables/migrations, state transitions, confirmation, admission, dispatch marker | Core contracts |
 | Execution/recovery | Two modes, retry-family observation, unknown reconciliation, cancellation | Adapter + durable core |
 | Capability expansion | Preset launch/materialization, schedules/sensors, metadata queries | Per-capability contracts |
-| Deployment/observability | Containers, HA configuration, secrets, dashboards and alerts | Platform conventions |
+| Deployment/observability | One bot deployment, internal Service connectivity, HA database contract, secrets, dashboards and alerts | Platform conventions |
 | Validation/launch | DEV tests, failure injection, runbooks, PROD write gates | All critical packages |
 
 No calendar estimate is assigned until owner capacity, dependency availability and version compatibility are known.
@@ -1020,7 +1153,7 @@ MCP is not a requirement. If future consumers need it, expose the existing appli
 
 ## 19. Remaining questions and verification register
 
-Most design choices have defaults. Thread-mention interaction is now confirmed; the corresponding resolved entry is retained below for traceability. The other items are environment facts or decisions that still affect implementation/readiness.
+Most design choices have defaults. Same-cluster applications and thread-mention interaction are confirmed; the corresponding resolved entry is retained below for traceability. The other items are environment facts or decisions that still affect implementation/readiness.
 
 | ID | Needed fact/decision | Default or impact | Owner |
 |---|---|---|---|
@@ -1033,15 +1166,16 @@ Most design choices have defaults. Thread-mention interaction is now confirmed; 
 | O-07 | PostgreSQL HA service, secret manager and monitoring available? | Use existing platform; avoid deploying standalone single-pod DB | Platform owner |
 | O-08 | Channel private/public, actual IDs and trusted alert publisher IDs | Private company-only channel recommended | Slack owner |
 | O-09 | Structured log sample and company redaction/retention requirements | Apply section 13 defaults after sample review | Engineering/data owner |
-| O-10 | Internal URL/authentication, repository names, human-access link convention | Explicit configuration; never infer from user input | Platform owner |
+| O-10 | Existing webserver Service name/namespace/port/path, cluster domain, actual internal authentication, repository names and human-access link convention | Direct private GraphQL connection; verify from actual FastAPI pods; never infer from Slack input | Platform owner |
 | O-11 | Direct-launch presets and asset-to-job mappings | Optional launch/materialize disabled until supplied | Job owners |
 | O-12 | Required service objective during a whole-cluster outage | Same-cluster design cannot remain operational then | Operations owner |
+| D-13 (resolved) | Dagster/webserver and FastAPI are two applications in one Kubernetes cluster | Confirmed; one combined bot deployment calls existing internal Service directly | User, 2026-09-24 |
 
 An unresolved item is not filled with a fabricated environment value. The document can be revised as facts arrive. No additional approval is required merely to refine the design; owner verification is required before actual production enablement.
 
 ## 20. Technical references
 
-Public documentation reviewed during initial design on 2026-09-23 and the thread-mention revision on 2026-09-24. Source behavior can differ from the installed version. URLs are authoritative documentation/source references, not company endpoints.
+Public documentation reviewed during initial design on 2026-09-23 and the thread-mention/same-cluster revisions on 2026-09-24. Source behavior can differ from the installed version. URLs are authoritative documentation/source references, not company endpoints.
 
 | ID | Source | Relevance |
 |---|---|---|
@@ -1068,5 +1202,16 @@ Public documentation reviewed during initial design on 2026-09-23 and the thread
 | S21 | [Slack app_mention](https://docs.slack.dev/reference/events/app_mention/) | Explicit mention events without a general message subscription |
 | S22 | [Slack AppMentionEvent type](https://docs.slack.dev/tools/node-slack-sdk/reference/web-api/interfaces/AppMentionEvent/) | Thread and command timestamp fields |
 | S23 | [Slack app_mentions:read](https://docs.slack.dev/reference/scopes/app_mentions.read/) | Required mention-event scope |
+| S24 | [Kubernetes Service](https://kubernetes.io/docs/concepts/services-networking/service/) | Internal ClusterIP and Service/target ports |
+| S25 | [Kubernetes Service DNS](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/) | Same-namespace and cross-namespace discovery |
+| S26 | [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/) | Workload selectors, ingress/egress and additive enforcement |
+| S27 | [Kubernetes RBAC](https://kubernetes.io/docs/reference/access-authn-authz/rbac/) | Kubernetes API permissions are distinct from application HTTP access |
+| S28 | [Dagster GraphQL Python client reference](https://docs.dagster.io/api/graphql/dagster-graphql) | Synchronous client; choose one async adapter for this bot |
+| S29 | [Slack Python SDK Socket Mode](https://docs.slack.dev/tools/python-slack-sdk/socket-mode/) | Async client/listeners and explicit envelope acknowledgement |
+| S30 | [HTTPX async support](https://www.python-httpx.org/async/) | Reused async client and lifecycle |
+| S31 | [HTTPX transport configuration](https://www.python-httpx.org/advanced/transports/) | Explicit transport retry behavior |
+| S32 | [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) | Process-owned startup/shutdown resources |
+| S33 | [Psycopg async operations](https://www.psycopg.org/psycopg3/docs/advanced/async.html) | Nonblocking PostgreSQL access in the shared event loop |
+| S34 | [Psycopg pool API](https://www.psycopg.org/psycopg3/docs/api/pool.html) | Async pool lifecycle and bounded acquisition |
 
 Implementation must pin the company's actual supported Dagster release. The 1.13.24 source references above are inspected examples used to identify design risks, not a recommendation to install that release or a statement that it is the deployed version.
