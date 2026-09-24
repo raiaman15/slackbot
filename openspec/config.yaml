@@ -1,46 +1,15 @@
 schema: spec-driven
 
 context: |
-  Project: a Slack operations bot for self-hosted Dagster, owned by the requesting engineering team.
-  State: design artifacts only; no runnable application or deployed bot is claimed.
-  FastAPI and Dagster are two applications in the same Kubernetes cluster.
-  Keep one FastAPI deployment with two identical PROD replicas, one Uvicorn process per pod.
-  Use asynchronous Slack Python SDK Socket Mode, HTTPX to the existing private Dagster /graphql
-  endpoint, and Psycopg 3 async PostgreSQL access. Reuse company database infrastructure with a
-  dedicated bot database/role. Supervise durable work, reconciliation and outbox loops in-process.
-  Phase 1 uses explicit deterministic @bot commands inside existing failure threads, without an LLM.
-  Preserve same-thread replies, exact trusted run binding, requester-bound confirmation,
-  one active bot-created run family, and no blind retry of uncertain launch mutations.
-  Existing Dagster automatic retries remain authoritative. Preserve logical inputs using current code.
-  One workspace, allowlisted channels, one PROD code location; separate DEV app/configuration.
-  Phase 2 can add company-AI-gateway intent interpretation through the same application policies.
-  Environment values, schema/version compatibility and data policies require recorded DEV verification.
-  OpenSpec change artifacts are canonical for planned behavior; README.md is the project entry point.
+  Python FastAPI Slackbot and self-hosted Dagster share a Kubernetes cluster.
+  Phase 1: deterministic @bot commands in failure threads; no LLM.
+  Use outbound Socket Mode, private Dagster GraphQL, and PostgreSQL durability.
+  PROD: one deployment, two replicas, one Uvicorn process per pod.
+  Scope: one workspace, allowlisted channels, one PROD code location; separate DEV.
+  Preserve exact run binding, requester confirmation, logical inputs/current code,
+  Dagster-owned retries, one active bot-created family and no blind launch retries.
+  These are planning artifacts; implementation and environment verification are pending.
 
 rules:
-  proposal:
-    - Declare every new or changed capability using its exact spec-directory name.
-    - Preserve the agreed interaction, architecture and scope unless the user changes them.
-  specs:
-    - State observable behavior with SHALL or MUST and testable WHEN/THEN scenarios.
-    - Give every requirement at least one scenario using an exact four-hash Scenario heading.
-    - Include failure, authorization, ambiguous-submission and recovery behavior where relevant.
-    - Keep library choices, SQL tables and implementation sequencing in design or tasks.
-  design:
-    - Keep the same-cluster connection and single FastAPI deployment explicit.
-    - Separate external platform facts to verify from decisions already made.
-    - Preserve full execution-selection, retry-family and uncertain-dispatch semantics.
   tasks:
-    - Use numbered unchecked tasks until implementation and its stated verification are complete.
-    - Include a verification outcome in every task and land tests with their feature group.
-    - Put environment verification and contract fixtures before enabling production mutations.
-
-operations:
-  apply:
-    guidance:
-      - Read the active capability specs and design before implementing a task.
-      - Record unavailable environment evidence as a blocker; do not fabricate versions or credentials.
-      - Keep tests focused on the behavior changed and preserve implementation task status accurately.
-  archive:
-    guidance:
-      - Check implementation and acceptance evidence before treating the initial bot as delivered.
+    - Include verification with each implementation task; check it only after completion.

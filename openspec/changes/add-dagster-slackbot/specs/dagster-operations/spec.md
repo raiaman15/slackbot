@@ -1,0 +1,120 @@
+## Purpose
+
+Define Dagster commands, faithful run reproduction, and observable control outcomes.
+
+## ADDED Requirements
+
+### Requirement: Verified scoped command catalog
+The system SHALL use named GraphQL operations verified against the deployed schema and DEV behavior, including inputs and result unions. Each capability SHALL be configurable. The system SHALL check startup compatibility, disable incompatible capabilities while retaining compatible diagnostics, and accept only the configured environment, code location, and repositories. HTTP success alone SHALL NOT mean GraphQL success. Reads and in-thread pagination SHALL be bounded.
+
+After an explicit bot mention, the system SHALL expose:
+
+| Command | Behavior |
+|---|---|
+| `help`, `health`, `capabilities` | Usage, safe dependency health, enabled capabilities and missing prerequisites |
+| `jobs` | Jobs, repositories, partitioning |
+| `runs`, `failed` | Runs with status, time, job filters |
+| `status` | Bound run, steps, timing, lineage, operation and retry state |
+| `logs` | Redacted structured errors, cause chains and stacks |
+| `config` | Safe configuration, selections and tags without secrets |
+| `retry` | Choose whole-run re-execution or fresh copy |
+| `launch <job> --preset <name>` | One run from a validated preset |
+| `cancel [run-id]` | Gracefully cancel one exact active or queued run |
+| `assets`, `asset <key>` | Asset materialization and check state |
+| `partitions <job-or-asset>` | List or validate existing partition keys |
+| `materialize <asset> --partition <key>` | One asset/partition through a verified mapping |
+| `schedules`, `sensors` | Definitions, state and ticks |
+| `schedule start/stop <name>` | Set one schedule's desired state |
+| `sensor start/stop <name>` | Set one sensor's desired state, preserving its cursor |
+| `operation <id>` | Current-thread operation and requester's pending confirmation |
+| `bind <full-run-id>` | Confirm an exceptional manual thread binding |
+
+#### Scenario: Capability or target is unsupported
+- **WHEN** an operation lacks verified schema support or targets another scope
+- **THEN** the system SHALL refuse it with an actionable, non-secret explanation, without selecting another endpoint or approximating it through a private API.
+
+#### Scenario: GraphQL fails over HTTP success
+- **WHEN** HTTP 200 contains GraphQL errors or an error result union
+- **THEN** the system SHALL classify that failure rather than report success.
+
+### Requirement: Optional inputs and phase-one exclusions
+Direct launch SHALL require an owner-maintained preset validated against the current definition and an explicit partition when required. Materialization SHALL require an approved asset-to-job/preset mapping proving one run with known configuration and exactly the requested asset/partition effect. Missing mappings SHALL disable only those capabilities, independently of logs, status and retry.
+
+Phase one SHALL exclude bulk retries, multi-partition backfills, arbitrary GraphQL/configuration, run deletion, asset wiping, code-location reload/shutdown, forced run states/termination, schedule-definition editing, sensor-cursor editing, dynamic-partition mutation and external log access. Retrying SHALL NOT create a schedule, sensor or backfill.
+
+#### Scenario: Single-asset request expands
+- **WHEN** a non-subsettable multi-asset would produce additional asset effects
+- **THEN** the system SHALL refuse the command rather than broaden it.
+
+### Requirement: Stable source and retry eligibility
+Failure-specific `logs`, `status`, `config` and `retry` SHALL default to the verified root-alert run. Explicit child selection SHALL belong to that operation without changing the thread binding; definition commands SHALL retain their named targets.
+
+Default retry SHALL require a terminal failed source. Successful or canceled sources SHALL require fresh-copy preparation explicitly displaying their status; active sources SHALL be refused. Active-backfill members SHALL be ineligible. Completed-backfill copies SHALL require verified tag filtering and original-selection preservation.
+
+#### Scenario: Retry created a child
+- **WHEN** someone subsequently requests `logs` without selecting a child
+- **THEN** the bot SHALL retrieve the original bound failure.
+
+#### Scenario: Source is active or belongs to an active backfill
+- **WHEN** either retry mode is requested
+- **THEN** the system SHALL show the state and refuse execution.
+
+### Requirement: Two explicit retry modes
+For eligible sources, `retry` SHALL offer whole-run re-execution and fresh copy. Both SHALL create a new run ID using current deployed code. Whole-run re-execution SHALL preserve supported parent/root lineage and execute the complete eligible source selection. Fresh copy SHALL create a new Dagster root with bot-retained source provenance. Neither mode SHALL resume from failure by reusing successful outputs as retry inputs.
+
+#### Scenario: Requester chooses a mode
+- **WHEN** the requester confirms an eligible retry
+- **THEN** execution SHALL follow the selected lineage semantics and complete approved selection, explaining that fresh-copy retry budgets can differ from linked re-execution.
+
+### Requirement: Faithful logical inputs and effects
+Both modes SHALL preserve complete logical configuration, partition intent, op/step selection, asset selection, asset-check selection and applicable user/business/policy tags through supported inputs. Null and empty selections SHALL remain distinct. Lineage or provenance SHALL NOT substitute for selection preservation. The preview SHALL show complete partition-range effects; one run SHALL NOT imply one asset or partition. Unsupported source intent SHALL be refused rather than narrowed or broadened.
+
+#### Scenario: Source has subsets or a partition range
+- **WHEN** either retry mode is prepared
+- **THEN** the preview and request SHALL reproduce the complete original selections and range, including null/empty distinctions, or refuse execution.
+
+### Requirement: Current code and fresh execution bookkeeping
+The system SHALL validate preserved inputs against current definitions without restoring historical images. Configuration or tags forcing historical code SHALL cause refusal, not silent modification. Observable source, code, definition or policy changes invalidating a preview SHALL require new preparation and confirmation.
+
+New runs SHALL retain supported business/retry-policy intent, use fresh execution identity and mode-specific lineage, replace historical bot correlation, and exclude stale retry counters, pending flags, child pointers, resume markers and other invalid execution bookkeeping. Mutable environment/secret references SHALL be described as logical copies, not byte-for-byte historical replay.
+
+#### Scenario: Historical inputs conflict with latest code
+- **WHEN** an image or launcher override would select historical code
+- **THEN** the bot SHALL refuse until separately reviewed supported input is available.
+
+### Requirement: Dagster owns automatic retry policy
+The system SHALL inspect descendants and retry-pending state during preparation and immediately before dispatch. Queued, running or pending automatic retries SHALL block manual duplicates. Prior automatic recovery SHALL require fresh preparation explicitly acknowledging it. The bot SHALL NOT disable retry policy, reset counters to satisfy its concurrency limit, invent unverified remaining attempts, or implement an independent automatic retry loop.
+
+#### Scenario: Automatic child has not appeared
+- **WHEN** Dagster reports an automatic retry pending
+- **THEN** the bot SHALL report that state and refuse a parallel manual retry even without a child run ID.
+
+### Requirement: Actual run-family completion
+An operation SHALL track its new primary and actual automatic-retry descendants, reporting relevant IDs and pending gaps. Unrelated historical-root branches SHALL NOT determine completion. Uncertain pending-versus-exhausted retry state SHALL remain unresolved.
+
+#### Scenario: Primary fails before an automatic child appears
+- **WHEN** an automatic retry remains pending
+- **THEN** the operation SHALL remain active and continue observing descendants.
+
+### Requirement: Graceful cancellation with observed outcome
+Cancellation SHALL require requester confirmation for one exact supported active/queued run, normal termination and observed status tracking. Ambiguous descendants SHALL require explicit selection. Acknowledged termination SHALL NOT be reported as canceled until Dagster confirms that outcome.
+
+#### Scenario: Target remains active after termination request
+- **WHEN** Dagster acknowledges termination without a canceled status
+- **THEN** the bot SHALL report cancellation pending and observe the eventual outcome.
+
+### Requirement: Serialized automation desired state
+Schedule/sensor start/stop SHALL preview and confirm one definition's desired state, serialize requests per target and preserve sensor cursors. After ambiguous responses, the system SHALL read current state before supported idempotent convergence. Unresolved older requests SHALL block contradictory dispatch until resolved or isolated.
+
+Previews SHALL explain that enabling automation can create multiple future runs outside the bot's single-family slot. Stopping SHALL NOT imply cancellation of existing runs. The bot SHALL observe external UI/daemon changes without claiming atomic exclusion or instance-wide concurrency control, including over automatic retries.
+
+#### Scenario: Stop follows an uncertain start
+- **WHEN** the older start may still take effect
+- **THEN** the target SHALL remain occupied until that request is resolved or isolated before stop dispatch.
+
+### Requirement: Typed services govern every entry point
+All entry points SHALL use the same typed preparation, authorization, confirmation, dispatch and reconciliation contracts. Phase one SHALL need no LLM or MCP. Future interpreters SHALL propose typed intents only, without choosing actor identity, bypassing confirmation or directly executing Dagster operations.
+
+#### Scenario: Future language adapter proposes retry
+- **WHEN** its intent enters the application
+- **THEN** the same verified Slack actor, target, current authorization, preview and confirmation SHALL be required.
