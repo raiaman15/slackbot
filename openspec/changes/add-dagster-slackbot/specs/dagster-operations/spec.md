@@ -2,10 +2,14 @@
 
 Define Dagster commands, faithful run reproduction, and observable control outcomes.
 
+Deployment facts come from the supplied [environment audit](../../environment-audit.md); deployment checks SHALL confirm they still hold.
+
 ## ADDED Requirements
 
 ### Requirement: Verified scoped command catalog
 The system SHALL use named GraphQL operations verified against the deployed schema and DEV behavior, including inputs and result unions. Each capability SHALL be configurable. The system SHALL check startup compatibility, disable incompatible capabilities while retaining compatible diagnostics, and accept only the configured environment, code location, and repositories. HTTP success alone SHALL NOT mean GraphQL success. Reads and in-thread pagination SHALL be bounded.
+
+The initial adapter SHALL target audited Dagster 1.13.1 in DEV and PROD. Its pinned documents SHALL use `launchRun`, `launchRunReexecution`, `terminateRun`, `startSchedule`, `stopRunningSchedule`, `startSensor`, and `stopSensor` as applicable; there is no `stopSchedule`. Scope configuration SHALL use deployed workspace identities, initially location `k8s-example-user-code-1` and repository `__repository__`, rather than names from an undeployed workspace file.
 
 After an explicit bot mention, the system SHALL expose:
 
@@ -36,6 +40,10 @@ After an explicit bot mention, the system SHALL expose:
 #### Scenario: GraphQL fails over HTTP success
 - **WHEN** HTTP 200 contains GraphQL errors or an error result union
 - **THEN** the system SHALL classify that failure rather than report success.
+
+#### Scenario: Audited schema exposes additional mutations
+- **WHEN** introspection includes deletion, backfill, cursor editing, or other excluded mutations
+- **THEN** their presence SHALL NOT enable them; only approved named operations with verified inputs and result unions SHALL be callable.
 
 ### Requirement: Optional inputs and phase-one exclusions
 Direct launch SHALL require an owner-maintained preset validated against the current definition and an explicit partition when required. Materialization SHALL require an approved asset-to-job/preset mapping proving one run with known configuration and exactly the requested asset/partition effect. Missing mappings SHALL disable only those capabilities, independently of logs, status and retry.
@@ -78,6 +86,8 @@ The system SHALL validate preserved inputs against current definitions without r
 
 New runs SHALL retain supported business/retry-policy intent, use fresh execution identity and mode-specific lineage, replace historical bot correlation, and exclude stale retry counters, pending flags, child pointers, resume markers and other invalid execution bookkeeping. Mutable environment/secret references SHALL be described as logical copies, not byte-for-byte historical replay.
 
+Source concurrency-policy tags SHALL remain intact. Previews SHALL explain that the deployed queued coordinator may delay a created run under tag limits; the bot SHALL neither bypass those limits nor equate creation with running.
+
 #### Scenario: Historical inputs conflict with latest code
 - **WHEN** an image or launcher override would select historical code
 - **THEN** the bot SHALL refuse until separately reviewed supported input is available.
@@ -85,9 +95,15 @@ New runs SHALL retain supported business/retry-policy intent, use fresh executio
 ### Requirement: Dagster owns automatic retry policy
 The system SHALL inspect descendants and retry-pending state during preparation and immediately before dispatch. Queued, running or pending automatic retries SHALL block manual duplicates. Prior automatic recovery SHALL require fresh preparation explicitly acknowledging it. The bot SHALL NOT disable retry policy, reset counters to satisfy its concurrency limit, invent unverified remaining attempts, or implement an independent automatic retry loop.
 
+The audited instance defaults are DEV `max_retries: 2`, PROD `max_retries: 3`, and both `retry_on_asset_or_op_failure: false`. Previews and completion checks SHALL use verified effective policy, including run-level overrides and failure classification, rather than assume every failure retries or these defaults always apply. DEV fixtures SHALL cover an op/dbt failure without automatic retry and an induced worker-crash retry family, including its pending-child gap. Run monitoring SHALL remain authoritative for transitions it causes; its audited settings are a 600-second start timeout, zero resume attempts, and 120-second polling.
+
 #### Scenario: Automatic child has not appeared
 - **WHEN** Dagster reports an automatic retry pending
 - **THEN** the bot SHALL report that state and refuse a parallel manual retry even without a child run ID.
+
+#### Scenario: Ordinary code failure has no automatic retry
+- **WHEN** effective policy and authoritative run evidence confirm no retry is pending for an op/dbt failure
+- **THEN** the bot SHALL offer an eligible manual retry without inventing a pending child or unused-attempt count.
 
 ### Requirement: Actual run-family completion
 An operation SHALL track its new primary and actual automatic-retry descendants, reporting relevant IDs and pending gaps. Unrelated historical-root branches SHALL NOT determine completion. Uncertain pending-versus-exhausted retry state SHALL remain unresolved.

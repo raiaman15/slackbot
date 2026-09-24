@@ -1,0 +1,86 @@
+# Infrastructure audit — 24 September 2026
+
+## Evidence and scope
+
+Consolidated from seven user-supplied photographs of an internal `environment-audit.md`. The photographed audit reports read-only inspection of the Dagster deployment repository, live DEV/PROD Kubernetes resources and GraphQL introspection, plus `dagster-slack` 1.13.1 source. **These are reported observations, not live checks repeated during this documentation update.** Infrastructure may drift; implementation must reconfirm its actual workload path.
+
+This public copy omits company cluster names, namespaces, database/registry/Teleport hosts and Slack channel names. Exact values are retained in the private companion document `slackbot-infrastructure-audit-private.md`; deployers supply them through controlled environment configuration. No photos or private inventory belong in this public repository.
+
+| Photo | Evidence covered |
+|---|---|
+| 1719.jpg | Date, provenance, version, clusters, Services, endpoints, authentication, deployed scope and replica counts |
+| 1720.jpg | Launcher, coordinator, retry/monitoring settings, logs, storage, policy, mesh and mutation surface |
+| 1721.jpg | Alert publisher, platform conventions, F1–F2 |
+| 1722.jpg | F3–F8: identity, retries, logs, deployed naming, database split and API names |
+| 1723.jpg | F8–F11, concurrency, webserver availability and copied-repository hygiene |
+| 1724.jpg | Remaining owner evidence and proposed amendments |
+| 1725.jpg | Read-only verification procedure and its limits |
+
+## Reported environment baseline
+
+| Contract | DEV | PROD |
+|---|---|---|
+| Dagster version | 1.13.1 | 1.13.1 |
+| Webserver | Release-qualified ClusterIP Service; HTTP port 80 → target port 80; `/graphql` | Same shape, separate environment values |
+| Endpoint access | No application authentication/proxy; no ingress | Same; network-only boundary |
+| Location / repository | `k8s-example-user-code-1` / `__repository__` | Identical |
+| Live replicas | Webserver 1, daemon 1, user-code 1 | Webserver 1, daemon 1, user-code 1 |
+| Declared/live difference | DEV values declare webserver replicas 2; live deployment has 1 | No equivalent discrepancy reported |
+| Launcher | `K8sRunLauncher`, jobs in the Dagster namespace using the existing Dagster service account | Same pattern |
+| Coordinator | `QueuedRunCoordinator`, `max_concurrent_runs: -1`, per-tag limits | Same shape; some additional limits verified only in repository values |
+| Automatic run retries | `max_retries: 2`, `retry_on_asset_or_op_failure: false` | `max_retries: 3`, `retry_on_asset_or_op_failure: false` |
+| Run monitoring | Enabled; start timeout 600 s; `max_resume_run_attempts: 0`; poll 120 s | Identical |
+| Compute logs | `NoOpComputeLogManager`; stdout/stderr not persisted by Dagster | Identical |
+| Dagster storage | One in-cluster PostgreSQL pod; database `dagster`, schema `public`; no failover | Shared AWS RDS endpoint; non-default Dagster schema. Aurora engine/failover model inferred, unconfirmed |
+| Ingress NetworkPolicy | Selects all namespace pods; allows only same-namespace sources | Identical restriction |
+| Mesh evidence | No sidecars/injection label observed; cluster certificate exists | Same; ambient enrollment/mTLS unverified |
+| GraphQL surface | 38 mutations reported by introspection | Identical reported surface |
+
+Port-forward queries establish the server contract, **not** bot-to-Service reachability across namespaces. Service names and cluster DNS must come from each environment's release; PR previews have different names. Configure the complete URL as `http://<webserver-service>.<dagster-namespace>.svc.cluster.local:80/graphql`; the old illustrative port 3000 is inapplicable here.
+
+## Findings and adopted changes
+
+| ID | Finding | Plan/spec response |
+|---|---|---|
+| F1 · High | Same-cluster placement does not overcome the existing same-namespace-only policy. | Keep a separate bot namespace. Platform/Dagster owners must add narrow webserver ingress in the private Dagster deployment repository in DEV and PROD, plus any needed bot egress. Test allowed bot traffic and denied unrelated traffic before enabling access. |
+| F2 · Medium | The previous example endpoint did not match real Service name, namespace or port. | Use controlled per-environment release-qualified URLs, HTTP port 80 and explicitly configured network-only access. Confirm ambient mesh separately. |
+| F3 · Confirmed | Alert display text contains only the first UUID segment, but the button contains the full ID. | Extract from the trusted `View in Dagster UI` button matching `http://127.0.0.1:8080//runs/<full-uuid>`, including the double slash. Never fetch that URL. No publisher change is needed for identity. |
+| F4 · Medium | Instance policy excludes ordinary asset/op failures from automatic run retries; budgets differ by environment. | Verify effective per-run policy, including supported tag overrides. Test both ordinary op/dbt failure without automatic run retry and induced worker-crash recovery, including pending-child gaps. Do not equate the instance defaults with proven exhaustion. |
+| F5 · Scope | Persisted raw compute logs are unavailable; run pods are cleaned up. | `logs` returns structured event-log failures only. Explain unavailable stdout/stderr; an authorized human may inspect a surviving pod. Add no bot Kubernetes log permissions or external-log fallback. |
+| F6 · Low | The source workspace location differs from the Helm-generated live location. | Target the deployed location/repository above, verified per environment; do not infer scope from the source workspace file. |
+| F7 · Medium | DEV single-pod PostgreSQL cannot demonstrate PROD database failover guarantees. | Provision a dedicated bot schema and restricted role on the existing PROD database platform, subject to owner approval; a separate database is acceptable. Validate restore/promotion on a matching non-production database topology before enabling PROD writes. |
+| F8 · Low | Required API mutations exist, but schedule stop is `stopRunningSchedule`, not `stopSchedule`; launch has no reported idempotency key. | Pin 1.13.1 documents and result/input contracts. Keep single-attempt dispatch and an explicit allowed mutation set. Schema availability does not enable excluded operations. |
+| F9 · Low | Preserved source concurrency tags also constrain bot-created runs. | Retain queue-policy tags, show possible queueing in previews, distinguish run creation from running, and hold the bot family slot while queued. Never strip tags to accelerate a retry. |
+| F10 · Availability | Both environments have one webserver replica; DEV values and live count disagree. | Name the webserver as a single point of failure for API reads/dispatch. Bot replicas do not fix this. Reconcile drift with the platform owner and report dependency outages without restart storms. |
+| F11 · Local copy | The photographed internal copy used a different OpenSpec change name and lacked the README-referenced config. | This repository already has `add-dagster-slackbot` and `openspec/config.yaml`. Keep its valid names; do not import the copied-repository mismatch. |
+
+### API and alert details
+
+Supported mutation names reported: `launchRun`, `launchRunReexecution`, `terminateRun`, `startSchedule`, `stopRunningSchedule`, `startSensor`, `stopSensor`. Present but excluded: `deleteRun`, `wipeAssets`, `reloadRepositoryLocation`, `shutdownRepositoryLocation`, `launchPartitionBackfill`, `addDynamicPartition`, `setSensorCursor`. One photo groups `setSensorCursor` with present API names; F8 explicitly excludes it, consistent with the existing scope. A mutation-name inventory does not prove input/output behavior or selection fidelity.
+
+The existing failure sensor uses `dagster-slack` 1.13.1 and a custom error section truncated to 3,000 characters. The button URL is the primary identity source; structured Dagster events supply fuller bounded evidence. Publisher bot/app IDs, workspace/channel IDs and channel types still require a real Slack payload. Human access remains approved Teleport port-forwarding; a localhost button is not a generally usable employee link.
+
+### Delivery conventions
+
+The reported platform uses ACD/ArgoCD, environment-specific image repositories/tags, and ExternalSecrets backed by AWS Secrets Manager. Companion applications already use separate namespaces and private Services. Follow that pattern for the bot; the photographed internal bot project has example pipeline templates, not evidence of a deployed bot. Render and reconcile the real pipeline/manifests before rollout. Secret values must not enter this repository.
+
+## Remaining evidence and release gates
+
+| Owner | Required evidence |
+|---|---|
+| Platform + Dagster deployment owners | Approved cross-namespace policy change; actual namespace/pod selectors; allowed/denied traffic tests; ambient-mesh status; webserver replica drift resolution |
+| Database/platform owner | Actual engine/topology and acknowledged-commit durability; bot schema/role; chosen DEV storage; production-equivalent non-production failover/restore results or an explicit blocked PROD-write gate |
+| Dagster/job owners | Pinned schema/union fixtures, both retry failure classes, reliable pending/exhausted observations, full selection/partition/current-code behavior, queue-tag preservation |
+| Slack owner | Publisher and app/workspace/channel IDs/types, captured alert payload, bot scopes/membership and Socket Mode egress |
+| Data/job owners | Redaction/retention approval, launch presets and asset mappings |
+| Application/platform owners | Working delivery manifests, key/secret rotation, independent alarms, real human access instructions and DEV end-to-end acceptance |
+
+Audit observations close identification questions; they do not complete implementation tasks. The read-only rollout still requires working connectivity, authenticated Slack policy and approved data handling. Mutations additionally require durable state, dispatch/recovery tests and explicit enablement.
+
+## Verification record and implementation trace
+
+The photographed audit reports read-only `kubectl get` of namespaces, pods, Services, deployments, NetworkPolicies and instance/workspace ConfigMaps; temporary port-forwards; and GraphQL version, workspace and mutation-name queries. It reports both forwards closed and no secret reads, writes, mutations or rollouts. The photographed commands use placeholders and abbreviated GraphQL, so they are a procedure outline rather than an executable test suite. This update did not access either cluster.
+
+Implementation mapping: tasks 1.1–1.6 close contracts/policy/database gates; 3.1–3.3 pin API, selection and retry behavior; 4.2 pins alert extraction; 4.4/5.3 cover queueing; 6.1 handles unavailable raw logs; 7.1–7.5 cover delivery, dependency health and rollout. Behavioral requirements are in the three [specs](specs/); topology and implementation choices are in [design](design.md).
+
+Platform semantics reference: [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/) and [Dagster run retries](https://docs.dagster.io/deployment/execution/run-retries). Public documentation supports interpretation, not proof of the private deployment or its pinned schema.

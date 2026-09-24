@@ -1,14 +1,17 @@
 schema: spec-driven
 
 context: |
-  Python FastAPI Slackbot and self-hosted Dagster share a Kubernetes cluster.
+  Python FastAPI Slackbot and self-hosted Dagster share a cluster per environment.
+  The active change environment-audit.md records the 2026-09-24 photographed baseline.
+  Dagster 1.13.1 uses private HTTP port 80; separate bot namespace access needs
+  explicit Dagster-side NetworkPolicy remediation. Private identifiers stay outside git.
   Phase 1: deterministic @bot commands in failure threads; no LLM.
   Use outbound Socket Mode, private Dagster GraphQL, and PostgreSQL durability.
   PROD: one deployment, two replicas, one Uvicorn process per pod.
   Scope: one workspace, allowlisted channels, one PROD code location; separate DEV.
   Preserve exact run binding, requester confirmation, logical inputs/current code,
   Dagster-owned retries, one active bot-created family and no blind launch retries.
-  These are planning artifacts; implementation and environment verification are pending.
+  These are planning artifacts; implementation and remaining audit release gates are pending.
 
 rules:
   tasks:

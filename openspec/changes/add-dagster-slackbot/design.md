@@ -2,7 +2,7 @@
 
 ## Context
 
-Dagster and the FastAPI bot are existing applications in one Kubernetes cluster. Scope: one workspace, allowlisted channels, one PROD code location, roughly ten users and one hundred jobs, with separate DEV configuration. Dagster already sends failure alerts and performs run retries.
+Dagster and FastAPI share a cluster within each environment; DEV and PROD use separate clusters. The [24 September infrastructure audit](environment-audit.md) supplies the reported deployment baseline and remaining gates. Scope: one workspace, allowlisted channels, one PROD code location, roughly ten users and one hundred jobs, with separate DEV configuration. Dagster already sends failure alerts and performs run retries.
 
 This is an unimplemented design. [Proposal](proposal.md) defines scope; [capability specs](specs/) define behavior; [tasks](tasks.md) track implementation. Keep command semantics and acceptance scenarios in the specs rather than duplicating them here.
 
@@ -18,13 +18,17 @@ Provide reliable in-thread operations with a small deployment footprint. Phase o
 flowchart TD
   S["Slack failure thread"]
   subgraph K["Existing Kubernetes cluster"]
-    B["FastAPI bot: two identical PROD pods"]
-    D["Existing Dagster webserver Service"]
-    R["Dagster orchestration and run workers"]
-    B -->|"Private HTTP(S): /graphql"| D
+    subgraph BN["Bot namespace"]
+      B["FastAPI bot: two PROD pods planned"]
+    end
+    subgraph DN["Dagster namespace"]
+      D["Existing Dagster webserver Service"]
+      R["Dagster orchestration and run workers"]
+    end
+    B -->|"HTTP 80: /graphql, scoped policy required"| D
     D --> R
   end
-  P[("Existing PostgreSQL platform: bot database")]
+  P[("Existing PostgreSQL platform: isolated bot schema/role")]
   B -->|"Opens Socket Mode connection"| S
   S -->|"Mentions and buttons on that connection"| B
   B -->|"Web API: thread replies"| S
@@ -33,7 +37,8 @@ flowchart TD
 
 | Choice | Reason and alternative |
 |---|---|
-| Existing private GraphQL endpoint | Avoids a proxy or employee Teleport session; Dagster retains execution ownership |
+| Existing private GraphQL endpoint | HTTP port 80, network-only access; Dagster retains execution ownership |
+| Separate bot namespace | Matches companion applications; requires a narrow Dagster-side NetworkPolicy change before access |
 | One FastAPI deployment | Current volume needs no separate gateway/worker deployments; split later only for measured contention |
 | Two identical PROD replicas | Survives individual pod loss; DEV may use one |
 | Slack SDK Socket Mode | Outbound HTTPS/WSS avoids public ingress; signed HTTPS callbacks remain an alternative transport |
@@ -62,21 +67,25 @@ Configure separate DEV/PROD apps. Subscribe to `app_mention` and interactive but
 
 The async SDK listener validates local envelope context, persists a deduplicated receipt or confirmation transaction, then sends `SocketModeResponse`. Never put history/membership/Dagster calls on this acknowledgement path. Unsupported/disallowed input is acknowledged and ignored promptly. Database failure means no claimed acceptance; manage Socket intake explicitly because Kubernetes readiness does not disconnect an outbound session.
 
-Resolve the root using `conversations.history(channel, latest=root_ts, inclusive=true, limit=1)` and require its exact timestamp. Verify publisher IDs, extract the full UUID from approved fields/link patterns, and query the configured Dagster endpoint. Never follow message-supplied URLs. Use paginated `conversations.members` for requester membership; `conversations.info.is_member` describes the bot token holder.
+Resolve the root using `conversations.history(channel, latest=root_ts, inclusive=true, limit=1)` and require its exact timestamp. Verify publisher IDs and extract the full UUID from the trusted `View in Dagster UI` button. The audited pattern is `http://127.0.0.1:8080//runs/<full-uuid>`: pin scheme/host/port/path, including the double slash, and validate a complete UUID; never fetch the link. The displayed first UUID segment is not identity. No publisher change is needed; capture a real payload to finalize publisher/app/channel IDs. Query only the configured Dagster endpoint. Use paginated `conversations.members` for requester membership; `conversations.info.is_member` describes the bot token holder.
 
 Persist the root binding and post with `chat.postMessage(thread_ts=root_ts, reply_broadcast=false)`. Store the returned bot-message timestamp; update only bot-owned cards. Button values contain opaque operation/interaction references, not executable configuration. Untrusted publishers cannot use the manual-ID fallback. A private company-only channel is the default; shared channels are disabled unless explicitly configured.
 
 ### Dagster adapter
 
-Configure a full private URL, for example `http://dagster-webserver.dagster.svc.cluster.local:3000/graphql`. Replace Service name, namespace, cluster domain, **Service port**, scheme and path prefix with actual values. The Service must have ready endpoints and the webserver must listen on the pod interface. Human-facing links are separately configured; cluster DNS is not a laptop-access URL.
+Load DEV/PROD `DAGSTER_GRAPHQL_URL` from controlled deployment configuration using the private audit inventory. Both observed Services are release-qualified ClusterIPs: `http://<webserver-service>.<dagster-namespace>.svc.cluster.local:80/graphql`, Service/target port 80, no ingress or application auth proxy. Use explicit `DAGSTER_AUTH_MODE=network_only`; require approved network restrictions and confirm ambient-mesh behavior. Never guess credentials or route via employee Teleport. PR previews require explicit isolated mappings and cannot inherit PROD settings.
+
+Pin Dagster 1.13.1 as the audited baseline and validate live location `k8s-example-user-code-1` / repository `__repository__`; the source workspace's different name is not authoritative. The audit used port-forwards, so actual bot-pod DNS/Service access remains a release check. Check ready endpoints. Human access uses full run IDs and approved DEV/PROD port-forward instructions; do not advertise cluster DNS or the publisher's localhost button as a generally usable employee link.
 
 Pin GraphQL documents and union mappings to the deployed schema; send named operations with variables. Check HTTP status, top-level GraphQL errors and result `__typename`. A generic error after run creation is not a proven rejection. Use `read()` and `submit_once()` paths so a read retry policy cannot reach launches. Disable launch retries in HTTPX and any proxy/mesh; reject redirects and verify TLS where configured.
 
-Fetch complete source inputs. Re-execution/fresh-copy differences, supported selection fidelity, tag filtering, current-code conflicts and retry budgets are defined in `dagster-operations`. Contract-test both modes against real DEV workloads; do not infer them from the convenience client or UI fields. The adapter provides run/evidence lookup, plan validation, launch/re-execution, retry-family observation, operation-run discovery, cancellation and automation state control.
+Fetch complete source inputs. Re-execution/fresh-copy differences, supported selection fidelity, tag filtering, current-code conflicts and retry budgets are defined in `dagster-operations`. Contract-test both modes against real DEV workloads; do not infer them from the convenience client or UI fields. The adapter provides run/evidence lookup, plan validation, launch/re-execution, retry-family observation, operation-run discovery, cancellation and automation state control. Pin `stopRunningSchedule` for schedule stop; `stopSchedule` is absent. Introspection exposes excluded destructive/cursor operations too, so dispatch uses an allowlist, never schema-driven arbitrary execution.
+
+The observed instance defaults are DEV two / PROD three automatic retries with `retry_on_asset_or_op_failure: false`. Resolve supported per-run tag overrides before previewing effective policy; do not hardcode defaults as remaining budgets. Verify ordinary op/dbt failure with no automatic run retry and worker-crash recovery with pending-child gaps. Run monitoring (600 s startup timeout, 120 s poll, zero resume attempts) can change status independently; bot polling cannot accelerate its detection. Preserve queue-policy tags and warn that creation can leave a run queued. `NoOpComputeLogManager` provides no persisted stdout/stderr: expose structured event failures only.
 
 ### Durable data model
 
-Use a dedicated bot database/role; never write Dagster storage. Strings preserve Slack timestamps and IDs; timestamps use UTC. Foreign keys, unique logical keys and state-version checks enforce transitions.
+Use an isolated bot schema and dedicated role on the existing PROD PostgreSQL platform, provisioned by its owner; a separate bot database is an acceptable platform choice. Restrict privileges and fix the search path so the bot cannot read/write Dagster tables. Never reuse Dagster credentials. The audited RDS endpoint suggests Aurora but does not prove engine, topology or durability. DEV currently hosts Dagster storage in one PostgreSQL pod; choose bot DEV storage explicitly and use a matching non-production failover topology for PROD recovery acceptance. Strings preserve Slack timestamps and IDs; timestamps use UTC. Foreign keys, unique logical keys and state-version checks enforce transitions.
 
 | Table | Essential fields / constraint |
 |---|---|
@@ -134,14 +143,16 @@ These are DEV-testable starting settings. Account for a temporary third rollout 
 
 | Required configuration | Contents |
 |---|---|
-| Scope | Environment; Slack workspace/app/bot/channel/publisher IDs; Dagster code location and allowed repositories |
-| Endpoint contract | `DAGSTER_GRAPHQL_URL`, actual internal authentication, schema fingerprint, optional human-link base |
-| Secrets | Slack app/bot tokens, `DATABASE_URL`, encryption key reference and actual service credentials |
+| Scope | Environment; isolated bot namespace; Slack workspace/app/bot/channel/publisher IDs; deployed Dagster location/repository |
+| Endpoint contract | Private-inventory `DAGSTER_GRAPHQL_URL`; `DAGSTER_AUTH_MODE=network_only`; schema fingerprint; human port-forward instructions |
+| Secrets | Dedicated Slack app/bot tokens, bot-role `DATABASE_URL`, encryption key reference; no invented Dagster API token |
 | Policy | Confirmed redaction/retention settings, enabled capabilities, optional presets/mappings |
 
-Keep secrets out of manifests/logs. Do not assume one code location contains one repository. Internal auth may be existing mesh, proxy or explicitly verified network-only access; Kubernetes service-account identity alone does not authenticate HTTP.
+Deliver through the existing ACD/ArgoCD pipeline, environment image registry/tag conventions and ExternalSecrets/AWS Secrets Manager. Private deployment settings supply exact registry and secret references. Complete the internal example pipeline templates and render manifests before rollout. Give the bot its own tokens/role rather than the alert publisher's `SLACK_TOKEN` or Dagster service account. Keep secrets out of manifests/logs. Kubernetes service-account identity alone does not authenticate this HTTP endpoint.
 
-Allow bot egress to DNS, webserver, PostgreSQL, Slack HTTPS/WSS and required platform integrations. Verify source egress and target ingress with actual workload identities/labels, Service/target ports and any mesh. NetworkPolicy rules are additive and require supporting enforcement; preserve other Dagster access. Standard policies do not constrain GraphQL fields or universally filter external hostnames. Reuse an approved egress proxy when necessary.
+The current Dagster policy selects all namespace pods and permits only same-namespace ingress. Platform/Dagster owners must change the private Dagster deployment chart/values in both environments: add a webserver-only ingress rule for TCP 80 from the exact bot namespace AND bot pod labels in the same `from` entry. Do not broaden the all-pod policy to the entire bot namespace. Preserve existing Dagster traffic; rules are additive, so inspect all effective policies and verify both allowed bot traffic and denied unrelated pod/namespace traffic. Application owners configure corresponding egress when isolated. This is a deployment prerequisite, not a bot startup workaround.
+
+Allow bot egress to DNS, webserver, PostgreSQL, Slack HTTPS/WSS and required platform integrations. Verify real selectors, Service/target ports, CNI enforcement and ambient mesh. No sidecars were observed, but this does not prove absent ambient mTLS. NetworkPolicy cannot restrict GraphQL fields or universally filter external hostnames; retain application allowlists and use the approved egress proxy if required.
 
 Use non-root containers, restricted secrets and no Kubernetes execution roles or shared Dagster-storage mounts. Disable service-account-token automount unless required by workload identity. Keep Dagster private. A private bot Service is only needed by internal HTTP/monitoring consumers; no public ingress is needed for Socket Mode.
 
@@ -149,7 +160,7 @@ Use non-root containers, restricted secrets and no Kubernetes execution roles or
 
 Expose internal `GET /health/live`, `/health/ready`, `/health/dependencies` and `/metrics`. Liveness observes the process/critical loops; readiness includes initialized state, writable storage, loops and Slack connectivity. Restrict dependency details and metrics. Only the optional HTTP transport adds signed `POST /slack/events`; there is no generic execution endpoint.
 
-Measure acknowledgement latency, oldest work/outbox age, connected sessions, slot age, unknown submissions, reconciliation lag, API/schema failures and redaction counts. Put operation IDs in logs/traces, not high-cardinality metric labels. Alert independently of the bot on lost connectivity/storage, unknown launches and stuck retry tracking. Performance/availability acceptance targets are in `execution-runtime`.
+Both environments currently have one Dagster webserver replica, a dependency single point of failure for reads and dispatch even with two bot replicas. Reconcile DEV's declared two replicas versus live one before capacity/availability claims; do not silently change Dagster replica counts. Measure acknowledgement latency, oldest work/outbox age, connected sessions, slot age, unknown submissions, reconciliation lag, API/schema failures and redaction counts. Put operation IDs in logs/traces, not high-cardinality metric labels. Alert independently of the bot on lost connectivity/storage, unknown launches and stuck retry tracking. Performance/availability acceptance targets are in `execution-runtime`.
 
 ## Risks / Trade-offs
 
@@ -161,7 +172,7 @@ Measure acknowledgement latency, oldest work/outbox age, connected sessions, slo
 
 ## Migration Plan
 
-1. Record environment contracts below and create DEV fixtures; keep dispatch disabled where evidence is missing.
+1. Load the audited environment inventory, complete the cross-repository network change and bot database provisioning, and create DEV fixtures; keep dispatch disabled where evidence is missing.
 2. Implement durable foundations, private reads and trusted thread resolution, then confirmed execution/recovery. Land tests with each feature.
 3. Validate selection fidelity, duplicate delivery/clicks, concurrent confirmations, pod death around dispatch, unknown responses, retries, channel revocation, schema changes, database failover/restore and redaction.
 4. Deploy PROD read-only; verify actual identities/network/data policy; enable tested logs/status/retry, then remaining catalog capabilities individually.
@@ -175,9 +186,9 @@ Owners must supply these environment facts before affected production capabiliti
 
 | Owner | Evidence |
 |---|---|
-| Dagster | Actual versions/schema, launcher/image behavior, retry pending/budget visibility, I/O manager and representative selection fixtures |
-| Platform | Private Service/DNS/path/auth, PostgreSQL failover guarantees, secrets/keys, monitoring and human-link convention |
-| Slack | Allowed channel type/IDs, app identities, trusted alert sample/full UUID and publisher-change feasibility |
+| Dagster | Pinned 1.13.1 contract/selection fixtures, effective retry pending/budget evidence, launcher/image behavior and I/O manager |
+| Platform | Narrow policy remediation, bot-pod connectivity, ambient mesh, DB engine/failover tests and schema/role, replica drift, secrets/keys, alarms and human access instructions |
+| Slack | Allowed channel type/IDs, app/publisher identities and real alert payload matching the audited full-UUID button |
 | Data/job owners | Redaction/retention approval, supported presets and asset mappings |
 
 The adopted scope is one active bot-created family with pod-level resilience. A broader concurrency or outage requirement is a future design change. Do not substitute fabricated deployment values for missing evidence.

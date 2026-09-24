@@ -2,6 +2,8 @@
 
 Operate Dagster from authenticated mentions in existing failure threads, with exact targets, explicit approvals, bounded evidence, and recoverable delivery.
 
+Publisher and log-storage findings are recorded in the supplied [environment audit](../../environment-audit.md).
+
 ## ADDED Requirements
 
 ### Requirement: Deterministic human commands
@@ -20,9 +22,15 @@ The system SHALL accept supported new human messages containing its exact mentio
 
 Failure-specific `logs`, `status`, `config`, and `retry` SHALL require an existing root distinct from the command timestamp. Workspace, channel, and timestamps SHALL come from authenticated Slack context; timestamps remain strings. The system SHALL retrieve that exact root, verify configured publisher and alert shape, and extract a full run ID from trusted fields or link patterns without fetching arbitrary URLs or ingesting whole conversations. It SHALL verify the ID against configured environment, code location, repository, job, and supplied partition evidence. Missing, inaccessible, untrusted, ambiguous, or out-of-scope roots SHALL fail with an explanation; suffix matches and latest-run selection SHALL NOT establish identity.
 
+For the audited dagster-slack 1.13.1 publisher, primary extraction SHALL use the `View in Dagster UI` button URL matching configured `http://127.0.0.1:8080//runs/<full-uuid>`, including scheme, host, port and doubled slash. The visible first UUID segment SHALL NOT identify the run. This source-verified format needs no publisher change; production binding SHALL still require captured Slack fixtures and verified publisher bot/app, workspace, and channel IDs. The URL SHALL be parsed as identity evidence, never fetched or treated as a usable employee link.
+
 #### Scenario: Root has a short link label
 - **WHEN** the trusted root's link contains a full run ID
 - **THEN** the system verifies that ID without requiring the user to copy it.
+
+#### Scenario: Audited localhost button contains the identity
+- **WHEN** a verified publisher's matching button contains one full UUID despite shortened visible text
+- **THEN** the bot SHALL bind that verified run without fetching the URL or requiring a publisher rewrite; unknown URL patterns SHALL fail automatic binding.
 
 #### Scenario: Identity is incomplete
 - **WHEN** only a suffix or neighboring message is available
@@ -99,6 +107,8 @@ Confirmation SHALL expire five minutes after preview preparation and bind operat
 ### Requirement: Bounded Dagster evidence
 
 Logs SHALL use exact-run structured run/step failures, supported cause chains, ordered timestamps, and stack frames; absent exceptions or unsupported diagnoses SHALL be stated. Responses SHALL identify job, environment, full run ID, failed step, exception, retry state, requester, operation, and redaction/truncation. Status SHALL distinguish original and related runs; config SHALL show sanitized logical inputs only. Retrieval SHALL bound pages, events, bytes, depth, and runtime: initially 100 events/page, 1 MiB/request, a ten-second response target, 30 rendered frames, and approximately 6,000 total characters within individual Slack block limits. Bounds SHALL produce partial-result notices and explicit pagination or human access.
+
+Both audited instances use `NoOpComputeLogManager`; raw stdout/stderr are not persisted and run pods are cleaned up. `logs` SHALL explicitly describe structured event-log evidence, without promising recoverable raw compute logs or adding Kubernetes log permissions. Human operators MAY inspect pod logs only while the pod still exists.
 
 #### Scenario: Evidence exceeds limits
 - **WHEN** any retrieval or rendering bound is reached
