@@ -12,10 +12,11 @@ A Slack operations bot for self-hosted Dagster, controlled through a FastAPI app
 | [Capability specs](openspec/changes/add-dagster-slackbot/specs/) | Required behavior with WHEN/THEN scenarios |
 | [Design](openspec/changes/add-dagster-slackbot/design.md) | Architecture, decisions, trade-offs and complete technical detail |
 | [Tasks](openspec/changes/add-dagster-slackbot/tasks.md) | Implementation checklist and verification outcomes |
-| [Workflow guide](openspec/README.md) | Tooling, validation and lifecycle conventions |
 | [Project configuration](openspec/config.yaml) | Shared context and artifact rules |
 
-The active change is `add-dagster-slackbot`, using the built-in `spec-driven` schema. Planned requirements are ADDED deltas in that change. `openspec/specs/` is intentionally empty until delivery and normal archive/sync; no implemented baseline is claimed.
+The active change is `add-dagster-slackbot`, using OpenSpec's built-in `spec-driven` schema. Each capability has an ADDED delta at `openspec/changes/add-dagster-slackbot/specs/<capability>/spec.md`. The standard change metadata records its schema and creation date.
+
+There is no implemented capability baseline or archived change yet. `openspec/specs/` and `openspec/changes/archive/` will be created when populated through the normal workflow; empty directories and placeholder files are not tracked.
 
 ## Recommended architecture
 
@@ -64,4 +65,10 @@ npx --yes --package @fission-ai/openspec@1.13.2 openspec instructions apply --ch
 
 OpenSpec 1.13.2 strict validation passed for this planning change. A complete artifact status means the documents are present; implementation progress remains **0/56 tasks**. Begin with the environment contract tasks, then build and verify in dependency order.
 
-The original [specification path](dagster_slackbot_spec.md) remains as a compatibility index. Its complete v0.3 technical content is carried forward in the OpenSpec design.
+Read the proposal, capability specs, design and tasks before implementation. Each requirement has a `#### Scenario:` with WHEN/THEN behavior; each task states how to verify completion. Update these artifacts together as requirements change.
+
+After implementation and acceptance verification, use OpenSpec's archive workflow to merge the deltas into the main specs and retain the completed change in the archive. Planning completion alone does not mean the bot is delivered.
+
+Tool-specific integrations are optional. Use the pinned CLI's `init --tools <tool-id>` command if you want editor/agent `/opsx:*` commands; this repository has no generated integration files or custom schemas.
+
+Official references: [OpenSpec concepts](https://github.com/Fission-AI/OpenSpec/blob/main/docs/concepts.md), [built-in schema](https://github.com/Fission-AI/OpenSpec/blob/main/schemas/spec-driven/schema.yaml), and [CLI reference](https://github.com/Fission-AI/OpenSpec/blob/main/docs/cli.md).

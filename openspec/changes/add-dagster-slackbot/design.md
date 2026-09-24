@@ -89,7 +89,7 @@ Alternative considered: post results directly from the mutation call and retry t
 
 ## Migration Plan
 
-1. **Planning migration (this change's document preparation):** initialize the built-in `spec-driven` schema; translate existing behavior to six ADDED delta specs; preserve HLD/LLD here; make the old root file a compatibility index. Keep implementation checkboxes unchecked and `openspec/specs/` empty.
+1. **Planning migration (this change's document preparation):** initialize the built-in `spec-driven` schema, translate existing behavior to six ADDED delta specs, and preserve HLD/LLD here. Use one root README for navigation and workflow commands. Keep implementation checkboxes unchecked; create baseline-spec and archive directories when they are populated through the normal workflow.
 2. **Environment contracts:** execute task group 1 and record actual schema, retry, Service, alert, identity, data-policy and database guarantees. Capability gates remain closed where evidence is unavailable.
 3. **DEV implementation:** build durable foundations and schema-pinned adapters, then thread reads, preparation/confirmation and controlled execution. Land feature tests and documentation with each group.
 4. **PROD rollout:** deploy read-only, verify real workload connectivity and Slack scope, enable verified log/retry actions, then enable other tested catalog capabilities. Record canary/fault-drill evidence.

@@ -30,11 +30,10 @@ This is a new system capability proposal, not a declaration that implementation 
 
 ### Modified Capabilities
 
-None. No implemented capability baseline exists in `openspec/specs/` yet.
+None. No implemented capability baseline has been recorded yet.
 
 ## Impact
 
 Planned code belongs in the Python FastAPI application, with Slack, Dagster and PostgreSQL adapters, migrations, Kubernetes deployment configuration, tests and runbooks. Integrations require Slack app credentials/scopes, approved outbound Slack access, the existing internal webserver Service, and a dedicated database role. Dagster continues to own execution; the bot needs no Kubernetes job-creation permissions or runtime Teleport session.
 
 This conversion organizes the existing design. It does not deploy infrastructure, install a Slack app, change Dagster configuration or enable production mutations. Environment verification tasks remain part of the implementation plan.
-

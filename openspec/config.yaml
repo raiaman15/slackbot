@@ -15,7 +15,7 @@ context: |
   One workspace, allowlisted channels, one PROD code location; separate DEV app/configuration.
   Phase 2 can add company-AI-gateway intent interpretation through the same application policies.
   Environment values, schema/version compatibility and data policies require recorded DEV verification.
-  OpenSpec artifacts are canonical for new work; dagster_slackbot_spec.md is a compatibility index.
+  OpenSpec change artifacts are canonical for planned behavior; README.md is the project entry point.
 
 rules:
   proposal:
