@@ -54,6 +54,8 @@ The console SHALL call the same parser, typed commands, authorization policies, 
 
 The console SHALL accept an exact full DEV run ID or a paginated, scope-filtered DEV run selection and display a conversation-style sequence of commands and responses. A sanitized alert fixture MAY exercise parsing, but SHALL NOT assert a live Slack publisher identity or authorize a mutation. The selected target SHALL remain explicit until the user changes it. The console SHALL support the shared command catalog, including status, structured errors, redacted configuration, rerun versus fresh-run selection, previews, confirmations, and operation observation. It SHALL display Dagster evidence through safe text rendering; untrusted text SHALL NOT execute HTML, scripts, or arbitrary links.
 
+The DEV adapter SHALL use server-issued conversation IDs scoped to its authenticated session, separate from Slack identities. Mock fixtures SHALL exercise the versioned context/interpreter contract with follow-ups, concurrent actors, stale or missing history and hostile text without an actual LLM. Live DEV SHALL retain its existing no-impersonation rules; restarting SHALL not promise restoration of DEV dialogue.
+
 #### Scenario: The selected run changes
 - **WHEN** a user selects another run while a preview exists
 - **THEN** the existing preview remains bound to its original target and cannot execute against the new selection.

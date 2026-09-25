@@ -9,6 +9,8 @@ The [environment audit](../../environment-audit.md) records reported infrastruct
 ### Requirement: Dagster is the only persistent execution source
 The bot SHALL use Dagster GraphQL for persisted run evidence and SHALL have no bot database, SQLite, Redis, persistent files/volume, object-store ledger, or Kubernetes coordination objects. State SHALL remain in bounded process memory. Platform logs SHALL contain redacted diagnostic events, not function as a work queue or recovery ledger. The system SHALL NOT promise durable command receipt, durable approvals, complete audit history, reliable notification delivery, or exactly-once execution.
 
+Any future model/graph context SHALL obey the same bounded-memory contract. Checkpoint identifiers SHALL NOT authenticate users or authorize execution. Reconstructed Slack/Dagster context SHALL NOT resume an interrupted graph, restore approval or rearm mutations after restart. Hosted persistence, external tracing and durable checkpointers SHALL NOT be introduced as implicit framework dependencies.
+
 #### Scenario: Process state disappears
 - **WHEN** a restart loses commands, proposals, bindings, or notifications
 - **THEN** the bot SHALL report unavailable session context, reject old controls, and recover only facts positively established through scoped Dagster queries; missing memory SHALL NOT mean no launch occurred.

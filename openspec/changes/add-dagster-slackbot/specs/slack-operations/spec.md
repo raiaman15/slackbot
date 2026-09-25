@@ -54,6 +54,22 @@ Evidence, menus, approvals, receipts, and outcomes SHALL stay beneath the valida
 - **WHEN** a control has a different context or retry lacks an existing failure root
 - **THEN** the adapter refuses execution and explains the required context.
 
+### Requirement: Conversation identity is separate from requester authority
+
+The shared conversation reference SHALL include installation, environment, transport, workspace, channel and original root timestamp. Request/event ID and authenticated actor SHALL remain separate per-turn fields. Replies SHALL use that saved channel and root `thread_ts`, with `reply_broadcast=false`; interpreters SHALL NOT choose destinations. Per-conversation context updates SHALL serialize or check snapshot revisions, without holding a lock while awaiting approval or run completion. Delayed results SHALL retain their original requester/turn and SHALL NOT overwrite newer context. Clarifications and proposals SHALL remain requester-bound despite shared dialogue. Unmentioned replies SHALL NOT start an operation or confirm one.
+
+#### Scenario: Two members share a failure thread
+- **WHEN** one member requests a retry and another replies with assent while asking their own question
+- **THEN** they MAY share verified conversational evidence, but neither the assent nor the second request SHALL approve or alter the first member's proposal.
+
+### Requirement: Rebuildable bounded conversation context
+
+Phase one SHALL supply verified root/current-command context and Dagster evidence through a versioned context-provider contract. Future explicitly enabled dialogue retrieval SHALL read only the authorized thread, verify installed token/scopes, paginate within configured message/byte/time/token limits, respect rate limits, and mark missing/truncated history. Snapshots SHALL retain author/message provenance, observation times and context revision. No channel-wide search, attachment/URL ingestion or cross-thread memory SHALL be required. Slack discussion and prior bot prose SHALL NOT establish execution facts or approval; fresh Dagster queries supply operational evidence. Cached text/summaries SHALL be bounded, sanitized and disposable, invalidated on detected edits/deletions or loss of authorization. Ambiguous references SHALL require clarification.
+
+#### Scenario: Context is lost or unavailable
+- **WHEN** a new authenticated turn follows restart or inaccessible/deleted history
+- **THEN** the adapter SHALL rebuild only accessible verified context, disclose gaps, and ask for missing references without recreating approvals, pending clarification authority or graph execution state.
+
 ### Requirement: Slack membership proves actor scope
 
 Before Dagster access, the adapter SHALL verify authenticated transport, configured app/workspace, allowlisted invoking channel, bot membership, human membership, enabled capability, and target scope. Membership SHALL use complete pagination. All verified channel members have equal ordinary permissions, including newly joined members of publicly joinable allowed channels. Company-controlled, non-Slack-Connect channels are the default; invitation alone does not authorize a channel. Endpoint/environment overrides SHALL be rejected. The adapter SHALL pass verified actor and scope to shared services; other adapters SHALL prove their own authorized principals without pretending to be Slack users.
@@ -100,7 +116,7 @@ Retrieval SHALL bound pages, events, bytes, depth, and runtime: initially 100 ev
 
 ### Requirement: Redaction before any disclosure
 
-Evidence SHALL remain Dagster-only, without external investigation or LLM disclosure. Before rendering, diagnostic logging, caching, or export, shared services SHALL redact credentials, tokens, passwords, authorization headers, secret URI components, configured sensitive keys, and owner-approved patterns. Exception locals, raw connection strings, and secret-bearing bodies SHALL be excluded; previews withhold secrets. Slack markup and workbench HTML SHALL be inert. Uncertain/prohibited content SHALL be withheld with safe metadata. Full-log uploads and DM rerouting SHALL be excluded. Human links SHALL use an approved convention; otherwise show the UUID and established port-forward instructions, never fabricated public/internal Service links. Production enablement requires owner review of representative errors and disclosure policy.
+Operational evidence SHALL remain Dagster-only, without external investigation; phase one SHALL make no LLM disclosure. A future model adapter SHALL require separate enablement and owner-approved disclosure through the company AI gateway only. Before rendering, diagnostic logging, caching, model input, or export, shared services SHALL redact credentials, tokens, passwords, authorization headers, secret URI components, configured sensitive keys, and owner-approved patterns. Exception locals, raw connection strings, and secret-bearing bodies SHALL be excluded; previews withhold secrets. Slack markup and workbench HTML SHALL be inert. Uncertain/prohibited content SHALL be withheld with safe metadata. Full-log uploads and DM rerouting SHALL be excluded. Human links SHALL use an approved convention; otherwise show the UUID and established port-forward instructions, never fabricated public/internal Service links. Production enablement requires owner review of representative errors and disclosure policy.
 
 #### Scenario: Evidence contains secrets or active markup
 - **WHEN** Dagster evidence includes sensitive or executable content

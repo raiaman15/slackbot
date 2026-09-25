@@ -11,6 +11,8 @@ context: |
   original inputs/latest code, Dagster retries and one admitted bot-created family.
   Audit baseline: Dagster 1.13.1, private HTTP port 80, cross-namespace policy gate.
   One workspace, allowlisted channels, one PROD code location; isolated DEV.
+  Scoped conversation/turn context and a replaceable interpreter prepare for a future
+  company-gateway LLM or LangGraph adapter; graphs never own approval or mutation execution.
   No LLM in phase one. Implementation and environment release checks remain pending.
 
 rules:

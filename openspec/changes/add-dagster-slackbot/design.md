@@ -35,14 +35,31 @@ FastAPI lifespan owns pooled async HTTPX clients, optional async Slack SDK clien
 
 | Boundary | Contract |
 |---|---|
-| Transport adapter | Authenticate principal, establish transport context, parse command, render shared results |
+| Transport adapter | Authenticate principal, establish conversation/turn context, render shared results |
 | Actor context | Transport, authenticated principal, allowed environment/scope, authorization evidence and freshness |
+| Conversation / turn | Stable scoped conversation key; separate event/request ID, current actor, boot and context revision |
 | Target context | Exact run UUID/job/selection, trusted Slack root or explicit DEV fixture/run binding |
+| Context builder | Versioned sanitized snapshot: target, source-attributed messages, fresh Dagster facts, completeness and budgets |
+| Intent interpreter | Fixed parser now; optional future LLM/LangGraph adapter returning typed intent, clarification or evidence-backed answer |
 | Application services | Resolve, read, prepare, select mode, confirm, dispatch once, reconcile, observe |
 | Dagster adapter | Pinned named GraphQL documents; separate bounded-read and submit-once paths |
 | Result | Operation ID, boot ID, state, safe evidence, proposed controls and delivery context |
 
-Shared services enforce capability/scope, current authorization, immutable preview, confirmation, admission, and execution checks. Slack membership verification and DEV session authentication are transport-specific proofs; browser-provided Slack IDs are never authority. The same finite command parser and result models serve both interfaces. Future language interpretation may propose typed intent only.
+Shared services enforce capability/scope, current authorization, immutable preview, confirmation, admission, and execution checks. Slack membership verification and DEV session authentication are transport-specific proofs; browser-provided Slack IDs are never authority. The same interpreter contract and result models serve both interfaces. Phase one implements only the finite command parser; no model dependency or credentials are required.
+
+### Conversation context and future LLM integration
+
+Use a canonical conversation key scoped by installation, environment and transport. For Slack include workspace ID, channel ID and original root timestamp; retain timestamps as strings. Participants share the conversation but each turn has its own authenticated requester and event ID. A run ID, user ID or message text alone is not a conversation key. Replies use the saved channel and root `thread_ts`, with broadcasting disabled; model output cannot choose destinations. DEV uses server-issued session/conversation IDs in a separate namespace.
+
+Build a versioned `ContextSnapshot` from the verified root/current request, explicit target, bounded source-attributed dialogue when enabled, fresh Dagster evidence and allowed capabilities. Record source IDs, observed times, context revision and missing/truncated sections. Phase one needs the root, current command and run facts; optional dialogue retrieval is behind a context-provider interface. Later use `conversations.replies` only for the authorized thread, with pagination, applicable token scopes/rate limits, and configured message/byte/time/token budgets. Do not scan channels or fetch attachments/URLs. Preserve who said what: human suggestions and prior bot prose are conversation data, not Dagster facts or authorization. An incomplete transcript requires clarification for ambiguous references, never a guessed target.
+
+Cache sanitized context in bounded RAM only. Refresh permissions and evidence before use; ignore stale/deleted/edited cached text when detected. Summaries are disposable derived context with source references, never approvals, run status or durable checkpoints. On a fresh authenticated turn after restart, reverify the root and rebuild run facts from Dagster and available dialogue from Slack only when dialogue retrieval is enabled; retention, missing scopes or deleted messages can prevent full recovery. DEV dialogue is lost unless supplied again as an explicit fixture. No cross-thread or cross-user preference store is introduced.
+
+Serialize context updates per conversation within bounded intake, without holding the context lock while awaiting human input or job completion. Each clarification/response/proposal is tied to its triggering actor/request and context revision; a delayed model result cannot overwrite newer context or mutate another requester's proposal. Context-dependent intent must be revalidated against current evidence before preparation. This ordering does not replace runtime admission or requester-only confirmation. Even in phase two, unmentioned replies provide context only; a new bot turn requires an explicit mention or a valid bound interaction.
+
+LangGraph is an optional phase-two orchestration library inside FastAPI, useful if investigation needs branching reads and clarification. Start with a bounded graph invocation per turn, supplied with rebuilt context, without a persistent checkpointer. A graph execution ID remains separate from the Slack conversation key; checkpoint `thread_id` alone neither routes Slack replies nor authenticates users. Optional in-memory checkpoints expire and disappear on restart. Durable graph resumption would require a separately approved persistence change; do not add it implicitly.
+
+The future model client uses only the company AI gateway, after approved redaction and disclosure policy, with bounded calls/tokens/time and deterministic command fallback. No hosted agent service, LangSmith tracing or external telemetry is required or enabled by default. Graph tools may call authorized named read services and propose typed intents. They cannot invoke mutations, confirm controls, arm recovery, execute arbitrary GraphQL/shell, change scope or fabricate actor identity. End the graph at an answer, clarification or action proposal; application code prepares the preview and handles the human's single-use confirmation independently. Graph retry/replay therefore cannot repeat a Dagster mutation. Treat messages, logs and summaries as untrusted data; validate tool inputs and distinguish evidence-backed observations from hypotheses. Phase two requires injection, attribution, ambiguity, replay and gateway-failure tests before enablement.
 
 ### Private Dagster contract
 
@@ -134,4 +151,6 @@ Only environment evidence remains: exact workload/admission selectors and regist
 
 - [Dagster GraphQL](https://docs.dagster.io/api/graphql): verify the installed 1.13.1 schema and result contracts.
 - [Slack Socket Mode](https://docs.slack.dev/apis/events-api/using-socket-mode/) and [Events API](https://docs.slack.dev/apis/events-api/).
+- [Slack thread retrieval](https://docs.slack.dev/reference/methods/conversations.replies/) and [reply routing](https://docs.slack.dev/reference/methods/chat.postMessage/).
+- [LangGraph overview](https://docs.langchain.com/oss/python/langgraph/overview), [persistence](https://docs.langchain.com/oss/python/langgraph/persistence) and [interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts): phase-two options, not phase-one dependencies.
 - [Kubernetes deployment strategies](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy) and [NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/).

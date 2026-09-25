@@ -131,11 +131,17 @@ Previews SHALL explain that enabling automation can create multiple future runs 
 - **THEN** the target SHALL remain occupied until that request is resolved or isolated before stop dispatch.
 
 ### Requirement: Typed services govern every entry point
-All entry points SHALL use the same typed preparation, authorization, confirmation, dispatch and reconciliation contracts, independent of Slack libraries. Actor context SHALL include transport, authenticated principal, authorized environment/scope and target context. Slack supplies verified membership/root evidence; live DEV supplies an authenticated DEV-only session. Mock identities SHALL never authorize a live backend. Phase one SHALL need no LLM or MCP. Future interpreters SHALL propose typed intents only, without choosing actor identity, bypassing confirmation or directly executing Dagster operations.
+All entry points SHALL use the same typed preparation, authorization, confirmation, dispatch and reconciliation contracts, independent of Slack libraries. Actor context SHALL include transport, authenticated principal, authorized environment/scope and target context. Slack supplies verified membership/root evidence; live DEV supplies an authenticated DEV-only session. Mock identities SHALL never authorize a live backend. Phase one SHALL need no LLM or MCP. The interpreter boundary SHALL accept a normalized turn and versioned context snapshot, returning a validated typed intent, clarification or evidence-backed answer. The deterministic parser SHALL implement it first; a future LLM/LangGraph adapter MAY replace interpretation without changing execution services.
+
+Future graph/model tools SHALL expose only authorized named reads and typed intent proposals; they SHALL NOT choose actor/scope/destination, execute arbitrary GraphQL, dispatch mutations, consume confirmation or arm recovery. Graph completion/retry/resume SHALL NOT count as approval. Application code SHALL prepare previews and process human confirmations independently of graph execution. Messages, logs and summaries SHALL remain untrusted data; model claims SHALL distinguish Dagster-backed facts from hypotheses. Ambiguous targets SHALL require clarification; invented identifiers SHALL fail normal target validation.
 
 #### Scenario: Future language adapter proposes retry
 - **WHEN** its intent enters the application
 - **THEN** the originating transport's authenticated actor, verified target, current authorization, preview and confirmation SHALL still be required.
+
+#### Scenario: Retrieved text tries to authorize execution
+- **WHEN** a message, error, summary or interpreter output says to bypass checks or reports an unverified successful run
+- **THEN** it SHALL neither create execution authority nor be treated as a verified outcome; only the shared policy and Dagster evidence SHALL establish them.
 
 ### Requirement: GraphQL evidence replaces a bot database
 The bot SHALL use supported GraphQL queries and created-run tags for execution evidence, without a separate database, direct Dagster-storage access or a fabricated persistent operation store. The adapter SHALL support complete bounded discovery by stable installation, request, operation and source provenance, with validated job/configuration/selection, mode and lineage. Discovery SHALL include active runs and terminal parents with pending retries. Missing pages, inaccessible metadata, retention gaps or ambiguous tag/lineage matches SHALL defer launch rather than approximate absence. Tag-input and query support SHALL be contract-tested before launch capability is enabled.

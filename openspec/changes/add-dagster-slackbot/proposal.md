@@ -10,6 +10,7 @@ Engineers need to inspect and recover Dagster failures from their existing Slack
 - Require current requester confirmation and fresh evidence before actions; reconcile uncertain outcomes without automatic resubmission. Restart invalidates controls and requires operator rearming.
 - Build a minimal DEV-only mock/live console over shared application services, independently of Slack credentials.
 - Implement Slack mentions, trusted thread binding, membership checks and rendering as a separate adapter/workstream.
+- Define scoped conversation/turn context and a replaceable interpreter; leave LLM/LangGraph optional for phase two without changing approval or execution ownership.
 - Preserve both retry modes, logical inputs/current code, Dagster retry/queue rules and the scoped operation catalog.
 - Keep Dagster private on audited HTTP port 80, with explicit cross-namespace policy remediation and deployment admission checks.
 
