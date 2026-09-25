@@ -1,6 +1,6 @@
 ## Purpose
 
-Operate a database-free FastAPI application beside Dagster, with conservative mutation admission, explicit restart recovery, and independently testable transports.
+Operate a database-free control application beside Dagster, with conservative mutation admission, explicit restart recovery, and independently testable transports.
 
 The [environment audit](../../environment-audit.md) records reported infrastructure evidence; it does not establish bot workload connectivity.
 
@@ -15,8 +15,8 @@ Graph state and future model context SHALL obey the same bounded-memory contract
 - **WHEN** a restart loses commands, proposals, bindings, or notifications
 - **THEN** the bot SHALL report unavailable session context, reject old controls, and recover only facts positively established through scoped Dagster queries; missing memory SHALL NOT mean no launch occurred.
 
-### Requirement: Bounded LangGraph workflow
-FastAPI lifespan SHALL compile a pinned, compatible async `StateGraph` once, with independent state per authenticated turn. Trusted actor/scope/dependencies SHALL be injected through server runtime context and SHALL NOT be writable by interpreter output. Nodes SHALL build context, interpret, validate/route, call scoped read/preparation tools and format typed results. Graph output SHALL end at an answer, clarification or sanitized preview; human confirmation SHALL use the existing application service through a separate authenticated interaction. Polling and notifications SHALL remain independent of graph execution.
+### Requirement: Bounded shared command workflow
+Every authenticated command turn SHALL have isolated bounded workflow state and use shared context, interpretation, validation, read/preparation and response behavior. Trusted actor, scope and dependencies SHALL come from the server and SHALL NOT be writable by interpreter output. Graph output SHALL end at an answer, clarification or sanitized preview; human confirmation SHALL use the existing application service through a separate authenticated interaction. Polling and notifications SHALL remain independent of graph execution.
 
 Phase one SHALL configure no checkpointer, store, interrupt/resume approval, hosted graph service or automatic tracing. Initial budgets SHALL be 20 graph steps and 30 seconds per turn, with nested calls bounded by remaining time. Whole-graph automatic retry SHALL be disabled; only safe reads MAY use existing bounded retries. Raw graph-state streaming/logging SHALL be prohibited; private state channels and output schemas SHALL NOT substitute for redaction. Provider failure or malformed output SHALL never fall through to execution.
 
@@ -34,14 +34,14 @@ Separate bot namespaces SHALL require a Dagster-side ingress allowance combining
 - **THEN** mutations SHALL remain disabled until scoped policy remediation and both workload tests pass in that environment.
 
 ### Requirement: Single active process
-Deployment SHALL use one replica, one Uvicorn process, a `Recreate` strategy, and no HPA, overlapping rollout, or second instance sharing an installation identity. A fresh unpredictable `boot_id` SHALL identify each process session. `SLACK_ENABLED=false` SHALL permit startup and DEV testing without Slack credentials or connectivity. No broker, worker service, or MCP server SHALL be required.
+Deployment SHALL use one replica, one application process, no overlapping rollout or autoscaling, and no second instance sharing an installation identity. A fresh unpredictable `boot_id` SHALL identify each process session. `SLACK_ENABLED=false` SHALL permit startup and DEV testing without Slack credentials or connectivity. No broker, worker service, or MCP server SHALL be required.
 
 #### Scenario: Deployment replaces a pod
 - **WHEN** a new process starts
 - **THEN** it SHALL begin with every mutation disarmed; replica count, `Recreate`, process death, and local locks SHALL NOT be treated as remote request fencing or proof that an old submitter cannot still affect Dagster.
 
 ### Requirement: Explicit commissioning and restart recovery
-Every startup SHALL require operator commissioning before any launch, cancellation, or automation mutation. Configuration SHALL set only capability ceilings, never automatically arm mutations. An operator CLI SHALL contact the current process through a local Unix socket accessed through authenticated, audited platform execution. It SHALL bind the decision to `boot_id` and an evidence/change reference; a supplied actor name SHALL NOT authenticate the operator. Slack, DEV UI, remote HTTP, environment flags, and force-reset controls SHALL NOT unlock mutations.
+Every startup and every rearm after submission uncertainty SHALL require operator commissioning before any launch, cancellation, or automation mutation. Configuration SHALL set only capability ceilings, never automatically arm mutations. An operator CLI SHALL contact the current process through a local Unix socket accessed through authenticated, audited platform execution. It SHALL bind the decision to `boot_id` and an evidence/change reference; a supplied actor name SHALL NOT authenticate the operator. Slack, admin panel, remote HTTP, environment flags, and force-reset controls SHALL NOT unlock mutations.
 
 Commissioning SHALL account for previous submitters and in-flight requests, perform complete bounded GraphQL scans, and validate discovered run families. First installation SHALL require recorded no-prior-submitter evidence. Restart recovery SHALL isolate old submitters where needed. Empty queries, elapsed time, or an operator acknowledgement without evidence SHALL NOT prove non-execution. Insufficient evidence SHALL retain read-only operation. A safely attached active family MAY permit confirmed cancellation after commissioning but SHALL block another launch.
 
@@ -54,12 +54,14 @@ Memory SHALL hold the bounded queue, deduplication map, bindings, five-minute pr
 
 Within a session, deduplication SHALL use transport request identity, not command text; Slack mentions SHALL use workspace/event identity rather than envelope identity. Single-use confirmation SHALL consume an immutable requester-bound intent tied to current boot, target, mode, approved inputs, and expiry. Changing intent SHALL require a new proposal. New requests after restart SHALL never recreate approvals automatically.
 
+Request identity SHALL be reserved atomically before admission. The same identity and submitted payload SHALL return retained state without duplicate processing or extended preview expiry; changed payload under that identity SHALL return REQUEST_ID_CONFLICT. Returning cached results SHALL require current authorization. A graph failure after proposal creation SHALL preserve its immutable recoverable preview and original expiry; it SHALL not leave an executable proposal behind a contradictory rejected state.
+
 #### Scenario: Duplicate event or confirmation arrives
 - **WHEN** its identity is retained or its proposal is consumed, expired, or from another boot
 - **THEN** it SHALL not create a second authorized dispatch; at capacity the bot SHALL reject intake without promising later processing or transport redelivery.
 
 ### Requirement: Process-local mutation admission
-One asynchronous lock SHALL serialize admission and protect one bot-created primary family slot per installation/environment. Immediately before invocation, authorization, target, approved inputs, code identity, and retry checks SHALL be no older than five seconds. Changed evidence SHALL invalidate the preview. Competing launches SHALL receive busy responses without deferred automatic execution; reads SHALL remain available. Cancellation and automation SHALL require their own approvals and definition/target serialization.
+Admission SHALL be serialized and protect one bot-created primary family slot per installation/environment. Immediately before invocation, targeted authorization, target, approved inputs, code identity and retry checks SHALL be no older than five seconds. Complete historical discovery MAY span bounded passes; it SHALL finish before these fresh targeted checks and incomplete coverage SHALL defer launch. Materially changed evidence SHALL invalidate the preview, except verified already-terminal cancellation or already-desired automation state, which SHALL complete without sending a mutation and invalidate its controls. Competing launches SHALL receive busy responses without deferred automatic execution; reads SHALL remain available. Cancellation and automation SHALL require their own approvals and definition/target serialization.
 
 Checks SHALL inspect existing request matches, source attempts across both rerun and fresh-copy modes, and scoped active or pending families including retry gaps. Queries SHALL exhaust required cursor pagination within bounded budgets; truncated, inaccessible, or ambiguous evidence SHALL defer mutations. Neither the latest run, first page, nor a recent time window SHALL prove absence. Proven prior requests SHALL return their existing result; repeating a completed attempt SHALL require a new preview and explicit repeat acknowledgement. Active, pending, or unknown attempts SHALL block parallel retry.
 
@@ -68,7 +70,7 @@ Checks SHALL inspect existing request matches, source attempts across both rerun
 - **THEN** only one SHALL pass the serialized fresh checks; the other SHALL receive the current busy or changed-evidence result.
 
 ### Requirement: Single-attempt mutation dispatch
-Immediately before `submit_once`, the process SHALL recheck boot identity, the mutation gate, operation ownership and unconsumed dispatch authority under synchronization shared with disarming. That final check, consuming authority in memory and starting invocation SHALL have no intervening asynchronous wait. Closing the gate SHALL prevent subsequent invocations, without claiming to retract requests already started. Each confirmation SHALL authorize at most one mutation POST; client, SDK, application, proxy, and mesh automatic mutation retries SHALL be disabled. Reads MAY retry within bounds. Dagster 1.13.1 provides no launch idempotency key. This guarantee SHALL be explicitly limited to the live process session and SHALL NOT imply server uniqueness or distributed locking.
+Immediately before mutation invocation, the process SHALL recheck boot identity, the mutation gate, operation ownership and unconsumed dispatch authority under synchronization shared with disarming. Final gate checks and commitment to one dispatch attempt SHALL be atomic. Disarming SHALL block attempts not yet committed; it SHALL NOT claim to retract committed or already started requests. Interrupted committed attempts SHALL remain uncertain unless no side effect is proven. Each confirmation SHALL authorize at most one mutation request; client, SDK, application, proxy, and mesh automatic mutation retries SHALL be disabled. Reads MAY retry within bounds. Dagster 1.13.1 provides no launch idempotency key. This guarantee SHALL be explicitly limited to the live process session and SHALL NOT imply server uniqueness or distributed locking.
 
 After invocation begins, timeout, disconnect, cancellation, shutdown, or generic GraphQL/server failure SHALL yield `SUBMISSION_UNKNOWN` unless the adapter proves no side effect. Unknown outcome SHALL disable all new mutations while safe reads and observation continue. Cancellation and automation changes SHALL obey the same rule; an opposite action SHALL NOT overtake an ambiguous earlier one.
 
@@ -83,7 +85,7 @@ After invocation begins, timeout, disconnect, cancellation, shutdown, or generic
 ### Requirement: Positive GraphQL reconciliation
 Created runs SHALL include stable installation/environment identifiers, unique operation ID, deterministic transport request ID, source ID when applicable, mode, protocol version, and safe intent fingerprint. The adapter SHALL verify tag support in its pinned mutation documents. Tags SHALL exclude credentials, configuration bodies, messages, and unapproved clear Slack identifiers; opaque keyed context identifiers MAY be used. Installation identity SHALL persist in deployment configuration and SHALL NOT rotate to evade history.
 
-Tags SHALL support discovery only. Reconciliation SHALL validate scope, job, inputs/selections, and lineage before attaching a primary and actual automatic descendants. Conflicting primaries, created-but-unsubmitted incidents, or insufficient evidence SHALL retain the block. Positive evidence SHALL resolve only what it establishes; observing a current automation/run state SHALL NOT exclude a late earlier mutation. Unknown mutation blocks SHALL clear only after positive reconciliation accounts for remote effects or the controlled operator process supplies sufficient evidence. Restart commissioning SHALL remain mandatory independently.
+Tags SHALL support discovery only. Reconciliation SHALL validate scope, job, inputs/selections, and lineage before attaching a primary and actual automatic descendants. Conflicting primaries, created-but-unsubmitted incidents, or insufficient evidence SHALL retain the block. Positive evidence SHALL resolve only what it establishes; observing a current automation/run state SHALL NOT exclude a late earlier mutation. An operation's uncertainty MAY resolve when positive reconciliation accounts for remote effects or the controlled operator process supplies sufficient evidence. The global mutation gate SHALL remain DISARMED until explicit operator commissioning; reconciliation SHALL NOT automatically rearm it.
 
 #### Scenario: Tagged results include descendants
 - **WHEN** lineage proves a single primary family
@@ -115,7 +117,7 @@ Liveness SHALL measure process/loop health without downstream calls. Readiness S
 ### Requirement: Isolated and admission-compliant deployment
 DEV and PROD SHALL separate identities, credentials, endpoints, and allowed scopes. Kyverno-required compliance labels and an approved registry SHALL be incorporated into release manifests; successful admission, image pull, startup, and actual workload connectivity SHALL each be verified. Deployment SHALL use restricted secrets, non-root privileges, dropped capabilities, a read-only image filesystem where practical, no host mounts, and no Kubernetes token unless required for workload authentication. Failed audit probes SHALL NOT satisfy workload testing.
 
-Release gates SHALL exercise duplicates, concurrent confirmations, both retry modes, queued families, response loss, restart commissioning, stale controls, automatic retry gaps, and dependency outages. PROD SHALL begin read-only and enable only tested capabilities. The DEV replica-count discrepancy SHALL be reconciled before capacity assumptions use chart values. Rollback SHALL start disarmed and account for prior submitters just like any replacement.
+Release gates SHALL exercise duplicates, concurrent confirmations, both retry modes, queued families, response loss, restart commissioning, stale controls, automatic retry gaps, and dependency outages. PROD SHALL begin read-only and enable only tested capabilities. The optional production admin panel SHALL require verified individual authentication and roles; mock mode and simulated identities SHALL remain DEV-only. The DEV replica-count discrepancy SHALL be reconciled before capacity assumptions use chart values. Rollback SHALL start disarmed and account for prior submitters just like any replacement.
 
 #### Scenario: Approved probe image cannot pull
 - **WHEN** admission succeeds but the workload does not start

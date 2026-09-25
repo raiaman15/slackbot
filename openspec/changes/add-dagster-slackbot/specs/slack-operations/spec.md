@@ -8,10 +8,10 @@ Publisher and log-storage findings are recorded in the [environment audit](../..
 
 ### Requirement: Independently enabled Slack adapter
 
-Slack SHALL be a separate adapter and implementation workstream. With `SLACK_ENABLED=false`, the application and DEV workbench SHALL start without Slack credentials, API calls, connection tasks, or Slack-dependent readiness. When enabled, Socket Mode SHALL translate authenticated command turns into the same LangGraph workflow, typed actors, target contexts and services used by the DEV adapter. Confirmation interactions SHALL route directly to the shared confirmation service, without model interpretation or graph resumption. Slack connection health SHALL be reported separately from Dagster, core, and workbench health. Slack failure SHALL NOT change an execution outcome or permit an alternative authorization path.
+Slack SHALL be a separate adapter and implementation workstream. With `SLACK_ENABLED=false`, the application and admin panel SHALL start without Slack credentials, API calls, connection tasks, or Slack-dependent readiness. When enabled, Socket Mode SHALL translate authenticated command turns into the same shared command workflow, typed actors, target contexts and services used by the admin adapter. Confirmation interactions SHALL route directly to the shared confirmation service, without model interpretation or graph resumption. Slack connection health SHALL be reported separately from Dagster, core, and admin-panel health. Slack failure SHALL NOT change an execution outcome or permit an alternative authorization path.
 
 #### Scenario: Slack is not configured
-- **WHEN** Slack is disabled and the DEV workbench is enabled
+- **WHEN** Slack is disabled and the admin panel is enabled
 - **THEN** DEV commands and tests work without a Slack app or workspace.
 
 ### Requirement: Deterministic human commands and volatile receipt
@@ -98,7 +98,7 @@ Confirmation SHALL expire five minutes after preview preparation and bind boot I
 
 ### Requirement: Operation inspection and explicit cancellation
 
-`operation <id>` SHALL expose retained operation state only to authorized users in its saved context. Its requester MAY recover an unexpired proposal there. Lost state SHALL be reported as unavailable, never as evidence that no run launched. Scoped Dagster queries MAY recover verified run facts but SHALL NOT fabricate command history or recover approvals. `Cancel request` cancels only an unsubmitted proposal; message deletion does not cancel a submitted run. Dagster cancellation requires exact-run selection and separate confirmation. Slack controls SHALL NOT arm mutations, reset uncertainty, or perform operator recovery.
+`operation <id>` SHALL expose retained operation state only to authorized users in its saved context. Its requester MAY recover an unexpired proposal there. Lost state SHALL be reported as unavailable, never as evidence that no run launched. Scoped Dagster queries MAY recover verified run facts but SHALL NOT fabricate command history or recover approvals. `Discard proposal` discards only an unsubmitted proposal; message deletion does not cancel a submitted run. Dagster cancellation requires exact-run selection and separate confirmation. Slack controls SHALL NOT arm mutations, reset uncertainty, or perform operator recovery.
 
 #### Scenario: Process state is lost
 - **WHEN** the user asks about an unknown operation after restart
@@ -106,7 +106,7 @@ Confirmation SHALL expire five minutes after preview preparation and bind boot I
 
 ### Requirement: Shared bounded Dagster evidence
 
-Evidence retrieval and sanitization SHALL be transport-independent application services used by Slack and the DEV workbench. Logs SHALL use exact-run structured run/step failures, supported cause chains, timestamps, and stack frames. Absent exceptions or unsupported diagnoses SHALL be stated. Responses SHALL identify job, environment, full run ID, failed step, retry state, and available requester/operation context without inventing missing facts. Status distinguishes original and related runs; config shows sanitized logical inputs only.
+Evidence retrieval and sanitization SHALL be transport-independent application services used by Slack and the admin panel. Logs SHALL use exact-run structured run/step failures, supported cause chains, timestamps, and stack frames. Absent exceptions or unsupported diagnoses SHALL be stated. Responses SHALL identify job, environment, full run ID, failed step, retry state, and available requester/operation context without inventing missing facts. Status distinguishes original and related runs; config shows sanitized logical inputs only.
 
 Retrieval SHALL bound pages, events, bytes, depth, and runtime: initially 100 events/page, 1 MiB/request, a ten-second response target, and 30 rendered frames. Slack SHALL additionally bound output to approximately 6,000 characters within individual block limits. Reaching bounds SHALL produce partial-result notices and explicit continuation or human access. Both audited instances use `NoOpComputeLogManager`; `logs` SHALL explain that raw stdout/stderr are not persisted, without adding Kubernetes log permissions or promising recoverable compute logs.
 
@@ -116,7 +116,7 @@ Retrieval SHALL bound pages, events, bytes, depth, and runtime: initially 100 ev
 
 ### Requirement: Redaction before any disclosure
 
-Operational evidence SHALL remain Dagster-only, without external investigation; phase one SHALL make no LLM disclosure. A future model adapter SHALL require separate enablement and owner-approved disclosure through the company AI gateway only. Before rendering, diagnostic logging, caching, model input, or export, shared services SHALL redact credentials, tokens, passwords, authorization headers, secret URI components, configured sensitive keys, and owner-approved patterns. Exception locals, raw connection strings, and secret-bearing bodies SHALL be excluded; previews withhold secrets. Slack markup and workbench HTML SHALL be inert. Uncertain/prohibited content SHALL be withheld with safe metadata. Full-log uploads and DM rerouting SHALL be excluded. Human links SHALL use an approved convention; otherwise show the UUID and established port-forward instructions, never fabricated public/internal Service links. Production enablement requires owner review of representative errors and disclosure policy.
+Operational evidence SHALL remain Dagster-only, without external investigation; phase one SHALL make no LLM disclosure. A future model adapter SHALL require separate enablement and owner-approved disclosure through the company AI gateway only. Before rendering, diagnostic logging, caching, model input, or export, shared services SHALL redact credentials, tokens, passwords, authorization headers, secret URI components, configured sensitive keys, and owner-approved patterns. Exception locals, raw connection strings, and secret-bearing bodies SHALL be excluded; previews withhold secrets. Slack markup and admin-panel HTML SHALL be inert. Uncertain/prohibited content SHALL be withheld with safe metadata. Full-log uploads and DM rerouting SHALL be excluded. Human links SHALL use an approved convention; otherwise show the UUID and established port-forward instructions, never fabricated public/internal Service links. Production enablement requires owner review of representative errors and disclosure policy.
 
 #### Scenario: Evidence contains secrets or active markup
 - **WHEN** Dagster evidence includes sensitive or executable content

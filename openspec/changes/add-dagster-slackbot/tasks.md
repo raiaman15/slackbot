@@ -1,49 +1,56 @@
 # Tasks
 
-Implementation is pending. The [audit](environment-audit.md) provides reported facts, not completed work. All checkboxes remain unchecked until their verification passes. Core/DEV UI work requires neither Slack setup nor a bot database; Slack integration is a separate workstream.
+Planning is complete; implementation and environment acceptance remain pending. Check a task only after its code and verification pass. Capability specs define observable behavior; `design.md` owns exact names, schemas, routes, states and defaults. Implement each requirement's WHEN/THEN scenarios at service, adapter or live-environment level. Use sanitized fixtures; do not create placeholder directories or files before needed.
 
-## 1. Shared application and offline contracts
+## 1. Shared application and contracts
 
-- [ ] 1.1 Pin compatible LangGraph/tool-schema packages and compile the async workflow in FastAPI lifespan with typed turn/context/result contracts. Implement deterministic interpreter/formatter placeholders; test real graph read/preparation routes with no Slack/model credentials, checkpointing or external tracing.
-- [ ] 1.2 Add validated mock/live and DEV/PROD settings, single-process runtime, bounded RAM queues/maps and boot identity; verify no database/persistent-store dependency, all mutations disabled every boot, and invalid/mixed profiles rejected.
-- [ ] 1.3 Implement typed read/preparation tools, trusted runtime injection, redaction and safe telemetry. Verify secrets/PII, markup, truncation and selection/configuration handling; forged tool output cannot change authority or dispatch. Exclude raw graph state, unredacted/full execution inputs and confirmation nonces from model-visible or rendered output.
+- [ ] 1.1 Create the minimal Python package, locked dependencies, validated settings and typed command/result/error models from the design. Verify invalid/extra fields, mixed environments and PROD mock mode fail; startup needs no disabled-transport credentials.
+- [ ] 1.2 Compile the async LangGraph workflow once with deterministic interpreter/formatter implementations and trusted runtime context. Verify every route with scripted inputs, no model calls/checkpointing/tracing, and bounded steps/deadlines.
+- [ ] 1.3 Implement the exact command grammar and typed read/preparation tool mapping. Verify text/form parity, quoting, argument case, unknown flags, out-of-scope targets and no raw GraphQL or execution tool exposure.
+- [ ] 1.4 Implement redaction and safe formatting. Test credentials/PII, markup, nested causes, truncation and selection/config handling; model/scripted prose cannot change immutable preview fields, status or authorization.
+- [ ] 1.5 Implement RAM state, atomic request reservation and canonical operation states. Verify identical/concurrent requests return one receipt, changed payload conflicts, expiration is not extended, capacity is bounded and all mutations start disarmed.
 
-## 2. DEV workbench — independently deliverable
+## 2. Admin panel and browser API
 
-- [ ] 2.1 Serve the small `/dev` page and typed session/command/operation routes; verify thread-like logs/status/config, mode choice, preview, confirmation and separate proposal/run cancellation use shared services without Slack credentials.
-- [ ] 2.2 Implement fixed startup mock/live mode, curated alert/run fixtures and server-bound DEV targets; verify no browser endpoint/environment/GraphQL override and no mock identity can reach real Dagster.
-- [ ] 2.3 Add DEV authentication, bounded in-memory sessions, CSRF and Origin/Host checks; verify unauthorized/cross-origin access fails, credentials avoid URLs/browser storage, and PROD exposes neither UI assets nor DEV routes.
-- [ ] 2.4 Test actual graph invocation through the UI with failure/retry and follow-up fixtures: separate actors, context races, missing history, malformed placeholder outputs and hostile evidence. Verify scripted summaries cannot rewrite preview target/mode/warnings; step/deadline limits, replay/cancellation, no provider calls or graph mutations, HTTP no-replay and old-boot rejection.
+- [ ] 2.1 Implement the canonical `/api/v1` routes/envelopes, server-issued contexts and scoped Activity lookups. Contract-test status codes, duplicate/lost-response lookup, unauthorized cached reads, pagination cursors and unknown operation semantics.
+- [ ] 2.2 Implement OIDC authorization-code/PKCE with RAM login state/sessions and exact subject-role allowlists. Verify issuer/audience/signature/nonce/state, viewer/operator denial, session rotation/expiry, recent auth_time for PROD actions and missing-OIDC isolation from Slack.
+- [ ] 2.3 Add CSRF/Origin/Host checks, safe cookies, cache/CSP headers, private access configuration and DEV-only local login. Verify cross-origin requests, forged identity and PROD mock/test routes cannot authorize access; credentials never enter logs/browser storage.
+- [ ] 2.4 Build the six-view admin shell, responsive navigation, tables/filters, detail panel and command input. Verify empty/loading/stale/error/unauthorized states, page-size limits and no public/CDN dependency.
+- [ ] 2.5 Wire every approved read/action form to shared commands. Verify read-only roles, unavailable presets/mappings, explicit target/mode, required partitions, immutable preview, discard versus cancel, and same-session one-use confirmation.
+- [ ] 2.6 Implement safe polling and response-loss handling. Verify no POST auto-replay, hidden-page backoff, idle-session expiry despite polling, preserved preview after formatting failure and restart with unavailable history.
+- [ ] 2.7 Run browser acceptance at desktop and narrow widths, keyboard/focus/contrast checks and mock fault fixtures. Cover concurrent actors, context races, malicious evidence, accepted-but-timeout submission and all command mappings; record functional/accessibility findings.
 
-## 3. Infrastructure and live DEV GraphQL
+## 3. Infrastructure and live Dagster contract
 
-- [ ] 3.1 Platform/application owners: satisfy Kyverno labels and registry rules, publish a pullable image, and complete existing ACD/ArgoCD/ExternalSecrets delivery templates. Verify admission, image pull, startup and required egress as separate gates.
-- [ ] 3.2 Platform/Dagster owners: apply narrow DEV/PROD webserver ingress TCP 80 from bot namespace AND pod selectors, preserving existing traffic. Verify real bot-to-Service GraphQL success and denied unrelated workloads; failed probes/port-forwards do not qualify.
-- [ ] 3.3 Verify private inventory endpoints, network-only auth, deployed location/repository and pinned 1.13.1 schema/union/tag contracts; record ambient-mesh/retry behavior and intended webserver count versus DEV drift. Disable incompatible capabilities.
-- [ ] 3.4 Implement bounded reads, full input/selection snapshots, event pagination and complete provenance/retry discovery. Verify op/asset/check/partition/null-empty fidelity, queue-policy tags, ordinary op/dbt no-retry failure, worker-crash family and pending-child gaps against live DEV.
+- [ ] 3.1 Platform/application owners: provide Kyverno labels, a pullable approved image, existing ACD/ArgoCD/ExternalSecrets delivery and private admin/OIDC callback routing. Verify admission, pull, startup, secret injection and each required egress path separately.
+- [ ] 3.2 Platform/Dagster owners: apply scoped DEV/PROD webserver ingress TCP 80 from bot namespace AND pod selectors, preserving legitimate traffic. Prove real allowed/denied workload paths; port-forwards or failed probes do not qualify.
+- [ ] 3.3 Verify inventory URL/auth, deployed location/repository, pinned 1.13.1 query/input/result/tag contracts and mesh retry behavior. Capture sanitized fixtures; disable unsupported capabilities and reconcile DEV webserver replica drift.
+- [ ] 3.4 Implement bounded GraphQL reads and faithful source snapshots. Verify partial/top-level/union errors, full selection/partition/null-empty fidelity, queue tags, op/dbt no-retry failures, worker-crash families and pending-child gaps against live DEV.
 
-## 4. Database-free execution and recovery
+## 4. Confirmed execution and recovery
 
-- [ ] 4.1 Implement current-boot requester-bound five-minute proposals and one-use confirmation; verify changed inputs/code/prior attempts, other users, expired state and duplicate controls cannot dispatch. Keep all approved inputs in memory only.
-- [ ] 4.2 Implement local admission, complete GraphQL prechecks and stable installation/request/operation/source tags; verify same-request discovery, prior attempts across both modes, incomplete scans, active families and retry gaps block duplicate work without claiming distributed exclusion.
-- [ ] 4.3 Implement whole-run re-execution/fresh-copy plans and consume dispatch authority before one POST; verify latest code, faithful selections/lineage, zero transport/proxy retries, and no resubmission after timeout, lost response or generic post-creation error.
-- [ ] 4.4 Implement observation, positive reconciliation and mutation disarming on uncertainty; verify queued/active/pending families retain admission, missing results never prove absence, and failed notifications cannot trigger execution.
-- [ ] 4.5 Implement the operator CLI/local socket through audited platform exec; drill first commissioning, graceful restart, node-partition/stale submitter isolation and unknown launch/automation outcomes. Verify boot/evidence binding, old controls invalidation, no remote unlock or automatic rearm from an empty scan, and zero POSTs if disarming/uncertainty occurs while an approved action awaits checks.
-- [ ] 4.6 Add per-target cancellation and schedule/sensor controls plus optional validated launch/materialization mappings; verify termination-versus-terminal status, late conflicting automation requests even when reads show the desired state, preserved cursors, explicit repeat acknowledgement and excluded/bulk effects remain unavailable.
+- [ ] 4.1 Implement immutable five-minute previews and requester/session/boot-bound controls. Verify changed input/code/prior attempts, reauthentication, other actors, duplicate controls and stale context cannot dispatch.
+- [ ] 4.2 Implement complete background discovery plus fresh targeted prechecks, provenance tags, one family slot and target serialization. Verify incomplete/aged-out scans and active/pending prior attempts across both modes block launch without claiming distributed exclusion.
+- [ ] 4.3 Implement whole-run re-execution and fresh-copy submission with one consumed dispatch attempt. Verify logical inputs/current code, lineage and tags; zero graph/client/proxy mutation retries; cancel/timeout/response loss never resubmits.
+- [ ] 4.4 Implement family observation and positive reconciliation. Verify queued/pending descendants retain admission, failure versus success stays distinct from operation completion, ambiguous outcomes disarm, and delivery failure cannot affect execution.
+- [ ] 4.5 Implement authenticated operator CLI/local socket and explicit rearming. Drill first commissioning, restart, stale submitter isolation, uncertain launch/automation, rollback and evidence loss; disarm during prechecks must prevent uncommitted dispatch.
+- [ ] 4.6 Implement exact-run graceful cancellation. Verify already-terminal no-op, queued/active targets, descendant selection, cancellation-requested versus observed canceled, and uncertain termination recovery.
+- [ ] 4.7 Implement schedule/sensor start/stop with per-target ordering. Verify already-desired no-op, late conflicting requests, cursor preservation and warnings about future runs outside the bot slot.
+- [ ] 4.8 Implement optional preset launch and mapped asset materialization. Verify happy paths, current definition validation, existing partition keys, complete effects, missing config and excluded multi-run/bulk behavior.
 
-## 5. Slack adapter — separate from core/UI
+## 5. Slack adapter — independent workstream
 
-- [ ] 5.1 Slack/data owners: supply real app/publisher/workspace/channel identities, scopes, captured alert payload and approved redaction/retention rules. Verify exact full UUID extraction from the audited localhost/double-slash button without publisher changes or URL fetching.
-- [ ] 5.2 Implement optional Socket Mode intake and volatile bounded ACK/deduplication; verify prompt acknowledgement, duplicate events, reconnects, overload and loss on process exit without promising durable receipt or guaranteed redelivery.
-- [ ] 5.3 Implement exact trusted-root resolution, volatile/manual binding and paginated membership policy; verify shortened IDs, edits, ambiguous roots, unauthorized/shared channels and lost binding state fail safely.
-- [ ] 5.4 Route Slack command turns through the same graph as DEV and confirmation buttons directly to the confirmation service. Verify conversation/actor separation, root routing, current-boot controls, fresh membership, repeat-attempt previews and bounded context-provider gaps/rebuild. Broader history/model use stays disabled in phase one.
-- [ ] 5.5 Implement bounded in-memory notification retry/coalescing and scoped run lookup after restart; verify revoked destinations, ambiguous posts, exhausted retries and dropped state never reroute evidence or repeat execution.
-- [ ] 5.6 Run real Slack DEV acceptance for logs/status, both retry modes and cancellation; verify scopes, identity, event delivery, root lookup, rendering and membership independently of UI/service tests.
+- [ ] 5.1 Slack/data owners: supply real identities, scopes, channel types, captured alert and approved disclosure rules. Verify exact full UUID extraction from the trusted localhost/double-slash button without fetching or modifying the publisher.
+- [ ] 5.2 Implement Socket Mode bounded intake/ACK and request identity mapping. Verify duplicate events, reconnects, overload and volatile loss without promising durable receipt or redelivery.
+- [ ] 5.3 Implement trusted root/manual binding and fully paginated membership checks. Verify shortened IDs, edits, unknown roots, shared/unapproved channels, revocation and missing binding state fail safely.
+- [ ] 5.4 Route Slack command turns through the same graph and confirmations through the same confirmation service. Verify all catalog mappings, root reply routing, actor isolation, immutable previews and current-boot controls.
+- [ ] 5.5 Implement bounded notification retry/coalescing and authorized state lookup. Verify revoked destinations, ambiguous posts, rate limits, exhausted retries and restart never reroute evidence or repeat execution.
+- [ ] 5.6 Run real Slack DEV acceptance plus context-provider fixtures for pagination, history gaps and concurrent turns. Verify scopes/identity/events/thread rendering separately from UI; broader history/model use remains disabled in phase one.
 
-## 6. Production readiness and completion
+## 6. Production release and completion
 
-- [ ] 6.1 Enforce one replica/process, `Recreate`, no HPA/overlapping installation and audited recovery access; verify replacement remains read-only even if an old pod/request may survive. Verify SIGTERM drain, dead-loop failure and no Dagster restart storm.
-- [ ] 6.2 Measure memory/queue bounds, receipt latency, query/scan budgets, observation and delivery behavior; verify active/unknown state is never evicted to admit work and independent alarms detect saturation, missing connectivity and rearm-required state.
-- [ ] 6.3 Drill process-state loss, tagged-run recovery, Dagster outage/storage evidence loss and rollback. Verify no old command/confirmation is replayed, operator evidence gates reopening, and limitations are visible in help/runbooks.
-- [ ] 6.4 Deploy PROD read-only with DEV UI/mock routes absent; repeat actual workload and Slack checks, confirm data-owner approvals and operator isolation procedure, then explicitly commission validated mutations and monitor controlled initial operations.
-- [ ] 6.5 Reconcile delivered behavior and scenario evidence, document no-database availability/delivery limits and remaining owner gates, validate OpenSpec, and archive only after implementation acceptance.
+- [ ] 6.1 Verify one replica/process, Recreate/no overlap, no HPA, shutdown drain, loop supervision and independent operator access. Replacement must remain read-only despite possible surviving old requests.
+- [ ] 6.2 Measure configured RAM/query/graph budgets, receipt latency, observation and delivery. Verify active/unknown state is never evicted to admit work; independent alarms detect saturation, outages and rearm-required state.
+- [ ] 6.3 Drill process loss, tagged-run recovery, Dagster outage/storage evidence loss and rollback. Verify no recreated approval/replayed command, explicit rearm and accurate limitations in panel/help/runbook.
+- [ ] 6.4 Deploy enabled PROD transports read-only. Repeat actual workload, OIDC/role and Slack checks; close data-owner gates, then explicitly commission only validated mutations and monitor initial controlled actions.
+- [ ] 6.5 Reconcile every capability scenario with test/evidence results, run Ruff/mypy/pytest and required browser/live checks, validate OpenSpec, and archive only after acceptance. Documentation validation alone never completes an implementation task.

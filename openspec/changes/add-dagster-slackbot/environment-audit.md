@@ -45,9 +45,11 @@ Port-forward queries establish the server contract, **not** bot-to-Service reach
 
 ## Current design decision
 
-The user has chosen **no bot database**, replacing the prior PostgreSQL/two-replica plan. Use one process, bounded memory and supported Dagster GraphQL evidence; a DEV-only console and Slack adapter share application services. Every boot disarms all mutations pending operator reconciliation. No SQLite, persistent queue, volume or hidden coordination store is introduced.
+The user has chosen **no bot database**, replacing the prior PostgreSQL/two-replica plan. Use one process, bounded memory and supported Dagster GraphQL evidence; a private admin panel and Slack adapter share application services. Every boot disarms all mutations pending operator reconciliation. No SQLite, persistent queue, volume or hidden coordination store is introduced.
 
 Bot database provisioning and its failover qualification (former G4/G6) are removed from the bot release plan. Existing Dagster storage facts remain relevant to availability and loss of run evidence; an outage, restoration or incomplete history must not be interpreted as proof of no previous launch. Extra API checks reduce risk but cannot guarantee exactly-once execution or durable receipt/delivery.
+
+The later UI decision permits a private production admin panel. Company OIDC registration, exact subject-role allowlists and private HTTPS callback routing are new deployment gates, not facts verified in the photographed audit. DEV mock identities remain prohibited in production.
 
 ## Findings and adopted changes
 
@@ -84,7 +86,7 @@ The reported platform uses ACD/ArgoCD, environment-specific image repositories/t
 | Dagster/job owners | Pinned schema/union fixtures, both retry failure classes, reliable pending/exhausted observations, full selection/partition/current-code behavior, queue-tag preservation |
 | Slack owner | Publisher and app/workspace/channel IDs/types, captured alert payload, bot scopes/membership and Socket Mode egress |
 | Data/job owners | Redaction/retention approval, launch presets and asset mappings |
-| Application/platform owners | Kyverno-compliant/pullable image, delivery manifests, secret rotation, independent alarms, DEV UI isolation, human access instructions and end-to-end acceptance |
+| Application/platform owners | Kyverno-compliant/pullable image, delivery manifests, secret rotation, independent alarms, production UI authentication and DEV mock isolation, human access instructions and end-to-end acceptance |
 
 Audit observations close identification questions; they do not complete implementation tasks. The read-only rollout still requires working connectivity, authenticated Slack policy and approved data handling. Mutations additionally require complete GraphQL evidence, validated in-memory dispatch/restart behavior, operator commissioning and explicit enablement. Data-owner approvals and behavioral fixtures remain open unless separately evidenced; the v2 gap list does not itself close them.
 
@@ -96,6 +98,6 @@ The attempted same-namespace ephemeral probe encountered admission requirements,
 
 V2 marks F1–F10 addressed in specifications while G1 policy remediation, G2 mesh confirmation, G3 replica drift and G5 Slack identities remain operational work. G4/G6 bot database planning is superseded above. The blanket v2 heading “all confirmed live” does not resolve its explicitly inferred engine/mesh details. Local-copy README hygiene F11 does not justify renaming this repository's valid change/config paths.
 
-Implementation mapping: task groups 1–2 deliver independent core/DEV UI; group 3 closes admission/network/GraphQL contracts; group 4 delivers no-database execution/recovery; group 5 owns Slack integration; group 6 verifies PROD. Behavioral requirements are in the four [specs](specs/); architecture is in [design](design.md).
+Implementation mapping: task groups 1–2 deliver independent core/admin UI; group 3 closes admission/network/GraphQL contracts; group 4 delivers no-database execution/recovery; group 5 owns Slack integration; group 6 verifies PROD. Behavioral requirements are in the four [specs](specs/); architecture is in [design](design.md).
 
 Platform semantics reference: [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/) and [Dagster run retries](https://docs.dagster.io/deployment/execution/run-retries). Public documentation supports interpretation, not proof of the private deployment or its pinned schema.

@@ -1,6 +1,6 @@
 # Slackbot
 
-Operate self-hosted Dagster through a FastAPI application in the same Kubernetes cluster. Build and test through a small DEV console first; integrate Slack as a separate adapter using the same services.
+Operate self-hosted Dagster through a FastAPI application in the same Kubernetes cluster. Build and test through a small admin panel first; integrate Slack as a separate adapter using the same services.
 
 **Planning complete; implementation pending. No bot database.** One pod/process uses bounded memory and Dagster GraphQL for run evidence. Commands, confirmations and notifications can be lost on restart. Every boot starts read-only until operator reconciliation; uncertain mutations are never automatically resent. This design trades automatic failover and durable delivery for simpler infrastructure.
 
@@ -12,7 +12,7 @@ Slack interaction remains in the existing failure thread:
 @bot retry
 ```
 
-The DEV UI works without Slack credentials. Both interfaces use the same LangGraph workflow and typed Dagster tools. Phase one uses deterministic parser/formatter implementations behind replaceable model interfaces, without model-provider calls or credentials. Mock/live-DEV modes exercise shared previews, confirmations and execution checks; DEV routes are absent in PROD.
+The admin panel works without Slack credentials and supports authenticated production use. Both interfaces use the same LangGraph workflow and typed Dagster tools. Phase one uses deterministic parser/formatter implementations behind replaceable model interfaces, without model-provider calls or credentials. DEV mock/live modes and PROD live mode use shared previews, confirmations and execution checks. Mock identities remain DEV-only; PROD uses company OIDC and explicit roles.
 
 ## OpenSpec plan
 
@@ -22,9 +22,9 @@ Active change: `add-dagster-slackbot`, using the built-in `spec-driven` schema.
 |---|---|
 | [Audit](openspec/changes/add-dagster-slackbot/environment-audit.md) | Infrastructure evidence, updated decisions and owner gates |
 | [Proposal](openspec/changes/add-dagster-slackbot/proposal.md) | Scope and four capabilities |
-| [Specs](openspec/changes/add-dagster-slackbot/specs/) | Dagster, runtime, DEV workbench and Slack requirements |
+| [Specs](openspec/changes/add-dagster-slackbot/specs/) | Dagster, runtime, admin panel and Slack requirements |
 | [Design](openspec/changes/add-dagster-slackbot/design.md) | Interfaces, in-memory state and conservative recovery |
-| [Tasks](openspec/changes/add-dagster-slackbot/tasks.md) | Core/UI first; separate Slack workstream; release checks |
+| [Tasks](openspec/changes/add-dagster-slackbot/tasks.md) | Core/admin UI first; separate Slack workstream; release checks |
 
 With Node.js 20.19 or later, run from the repository root:
 

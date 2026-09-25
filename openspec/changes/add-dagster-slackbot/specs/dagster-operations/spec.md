@@ -7,11 +7,11 @@ Deployment facts come from the supplied [environment audit](../../environment-au
 ## ADDED Requirements
 
 ### Requirement: Verified scoped command catalog
-The system SHALL use named GraphQL operations verified against the deployed schema and DEV behavior, including inputs and result unions. Each capability SHALL be configurable. The system SHALL check startup compatibility, disable incompatible capabilities while retaining compatible diagnostics, and accept only the configured environment, code location, and repositories. HTTP success alone SHALL NOT mean GraphQL success. Reads and in-thread pagination SHALL be bounded.
+The system SHALL use named GraphQL operations verified against the deployed schema and DEV behavior, including inputs and result unions. Each capability SHALL be configurable. The system SHALL check startup compatibility, disable incompatible capabilities while retaining compatible diagnostics, and accept only the configured environment, code location, and repositories. HTTP success alone SHALL NOT mean GraphQL success. Reads and pagination SHALL be bounded. Required missing fields, unknown result variants and partial data SHALL be classified explicitly; incomplete evidence SHALL NOT authorize a mutation.
 
 The initial adapter SHALL target audited Dagster 1.13.1 in DEV and PROD. Its pinned documents SHALL use `launchRun`, `launchRunReexecution`, `terminateRun`, `startSchedule`, `stopRunningSchedule`, `startSensor`, and `stopSensor` as applicable; there is no `stopSchedule`. Scope configuration SHALL use deployed workspace identities, initially location `k8s-example-user-code-1` and repository `__repository__`, rather than names from an undeployed workspace file.
 
-The shared application services SHALL expose this catalog. Slack maps explicit mentions to it; the DEV workbench maps its commands and controls to the same services:
+The shared application services SHALL expose this catalog. Slack maps explicit mentions to it; the admin panel maps its commands and controls to the same services within its authenticated environment scope:
 
 | Command | Behavior |
 |---|---|
@@ -33,6 +33,10 @@ The shared application services SHALL expose this catalog. Slack maps explicit m
 | `operation <id>` | Current-context in-memory operation, or positively identified Dagster run facts; lost controls cannot be recovered |
 | `bind <full-run-id>` | Slack-only exceptional manual thread binding, valid only within the current process |
 
+#### Scenario: Listing and selecting an authorized target
+- **WHEN** an authorized user requests a supported job, run, asset, partition or automation listing
+- **THEN** results SHALL retain exact scoped identifiers and report truncation with a scoped pagination control; selecting an item SHALL validate that identifier without guessing a different target.
+
 #### Scenario: Capability or target is unsupported
 - **WHEN** an operation lacks verified schema support or targets another scope
 - **THEN** the system SHALL refuse it with an actionable, non-secret explanation, without selecting another endpoint or approximating it through a private API.
@@ -40,6 +44,10 @@ The shared application services SHALL expose this catalog. Slack maps explicit m
 #### Scenario: GraphQL fails over HTTP success
 - **WHEN** HTTP 200 contains GraphQL errors or an error result union
 - **THEN** the system SHALL classify that failure rather than report success.
+
+#### Scenario: GraphQL returns partial data
+- **WHEN** a response contains both data and errors or omits required evidence
+- **THEN** diagnostics MAY display individually verified fields marked incomplete, but preparation/dispatch checks SHALL fail closed; a mutation whose side effects remain uncertain SHALL enter `SUBMISSION_UNKNOWN`.
 
 #### Scenario: Audited schema exposes additional mutations
 - **WHEN** introspection includes deletion, backfill, cursor editing, or other excluded mutations
@@ -50,12 +58,20 @@ Direct launch SHALL require an owner-maintained preset validated against the cur
 
 Phase one SHALL exclude bulk retries, multi-partition backfills, arbitrary GraphQL/configuration, run deletion, asset wiping, code-location reload/shutdown, forced run states/termination, schedule-definition editing, sensor-cursor editing, dynamic-partition mutation and external log access. Retrying SHALL NOT create a schedule, sensor or backfill.
 
+#### Scenario: Validated launch or materialization
+- **WHEN** a permitted preset or asset mapping resolves to one supported run with valid current configuration and partition intent
+- **THEN** the system SHALL prepare an exact effects preview and require the normal fresh checks and requester confirmation before dispatch.
+
+#### Scenario: Optional owner configuration is absent
+- **WHEN** no approved preset or exact asset mapping exists for the requested action
+- **THEN** that action SHALL be unavailable with its missing prerequisite, while compatible read and retry capabilities remain available.
+
 #### Scenario: Single-asset request expands
 - **WHEN** a non-subsettable multi-asset would produce additional asset effects
 - **THEN** the system SHALL refuse the command rather than broaden it.
 
 ### Requirement: Stable source and retry eligibility
-Failure-specific `logs`, `status`, `config` and `retry` SHALL default to the verified Slack root-alert run or explicitly bound DEV run/fixture. Explicit child selection SHALL belong to that operation without changing the thread binding; definition commands SHALL retain their named targets.
+Failure-specific `logs`, `status`, `config` and `retry` SHALL default to the verified Slack root-alert run or explicitly selected admin-panel run/DEV fixture. Explicit child selection SHALL belong to that operation without changing the thread binding; definition commands SHALL retain their named targets.
 
 Default retry SHALL require a terminal failed source. Successful or canceled sources SHALL require fresh-copy preparation explicitly displaying their status; active sources SHALL be refused. Active-backfill members SHALL be ineligible. Completed-backfill copies SHALL require verified tag filtering and original-selection preservation.
 
@@ -82,11 +98,15 @@ Both modes SHALL preserve complete logical configuration, partition intent, op/s
 - **THEN** the preview and request SHALL reproduce the complete original selections and range, including null/empty distinctions, or refuse execution.
 
 ### Requirement: Current code and fresh execution bookkeeping
-The system SHALL validate preserved inputs against current definitions without restoring historical images. Configuration or tags forcing historical code SHALL cause refusal, not silent modification. Observable source, code, definition or policy changes invalidating a preview SHALL require new preparation and confirmation.
+The system SHALL validate preserved inputs against current definitions without restoring historical images. The adapter SHALL record and recheck schema-supported deployment/definition identifiers and input validation evidence; unverifiable reproduction SHALL disable that action. Configuration or tags forcing historical code SHALL cause refusal, not silent modification. Observable source, code, definition or policy changes invalidating a preview SHALL require new preparation and confirmation.
 
 New runs SHALL retain supported business/retry-policy intent, use fresh execution identity and mode-specific lineage, replace historical bot correlation, and exclude stale retry counters, pending flags, child pointers, resume markers and other invalid execution bookkeeping. Mutable environment/secret references SHALL be described as logical copies, not byte-for-byte historical replay.
 
 Source concurrency-policy tags SHALL remain intact. Previews SHALL explain that the deployed queued coordinator may delay a created run under tag limits; the bot SHALL neither bypass those limits nor equate creation with running.
+
+#### Scenario: Deployment changes after preparation
+- **WHEN** fresh checks detect changed definitions or inputs that no longer validate
+- **THEN** the system SHALL invalidate the preview and require new preparation/confirmation; these checks SHALL NOT claim atomic protection from a deployment after the final read.
 
 #### Scenario: Historical inputs conflict with latest code
 - **WHEN** an image or launcher override would select historical code
@@ -115,6 +135,10 @@ An operation SHALL track its new primary and actual automatic-retry descendants,
 ### Requirement: Graceful cancellation with observed outcome
 Cancellation SHALL require requester confirmation for one exact supported active/queued run, normal termination and observed status tracking. Ambiguous descendants SHALL require explicit selection. Acknowledged termination SHALL NOT be reported as canceled until Dagster confirms that outcome.
 
+#### Scenario: Target finishes before cancellation dispatch
+- **WHEN** fresh checks find the exact target already terminal
+- **THEN** the system SHALL return its actual outcome without sending termination or claiming that the bot canceled it.
+
 #### Scenario: Target remains active after termination request
 - **WHEN** Dagster acknowledges termination without a canceled status
 - **THEN** the bot SHALL report cancellation pending and observe the eventual outcome.
@@ -126,18 +150,22 @@ Every automation/cancellation mutation SHALL obey the runtime boot gate and one-
 
 Previews SHALL explain that enabling automation can create multiple future runs outside the bot's single-family slot. Stopping SHALL NOT imply cancellation of existing runs. The bot SHALL observe external UI/daemon changes without claiming atomic exclusion or instance-wide concurrency control, including over automatic retries.
 
+#### Scenario: Automation already has the requested state
+- **WHEN** fresh evidence matches the requested state and no older operation is unresolved
+- **THEN** the system SHALL return the observed state without a mutation; it SHALL NOT claim future schedule/sensor runs were created or existing runs canceled.
+
 #### Scenario: Stop follows an uncertain start
 - **WHEN** the older start may still take effect
 - **THEN** the target SHALL remain occupied until that request is resolved or isolated before stop dispatch.
 
-### Requirement: Typed services govern every entry point
-All command turns SHALL use the same compiled LangGraph workflow; all entry points SHALL share typed preparation, authorization, confirmation, dispatch and reconciliation contracts, independent of Slack libraries. Actor context SHALL include transport, authenticated principal, authorized environment/scope and target context. Slack supplies verified membership/root evidence; live DEV supplies an authenticated DEV-only session. Mock identities SHALL never authorize a live backend. Phase one SHALL use LangGraph without model-provider calls/credentials or MCP. Replaceable `interpret(turn, context)` and `summarize(evidence, context)` interfaces SHALL have working deterministic parser/template implementations returning typed results. Unsupported prose SHALL produce clarification/usage, not fabricated interpretation. A disabled model-provider implementation SHALL report unavailable without network access; scripted implementations MAY be injected for tests. Future company-gateway implementations SHALL reuse these boundaries and existing tools/services.
+### Requirement: Shared command workflow
+All entry points SHALL share typed command, preparation, authorization, confirmation, dispatch and reconciliation contracts. Actor context SHALL include transport, authenticated principal, authorized environment/scope and target context. Slack supplies verified membership/root evidence; the live admin panel supplies an authenticated, server-scoped session. DEV mock identities SHALL never authorize a live backend. Phase one SHALL interpret supported commands and render evidence deterministically without model-provider calls or credentials. Unsupported prose SHALL produce clarification/usage, not fabricated interpretation. Model-provider selection while disabled SHALL report unavailable without network access. Future language interpretation SHALL retain the same authorization, tool and execution boundaries.
 
 Graph/model tools SHALL expose only authorized named reads and application-owned action preparation; they SHALL NOT choose actor/scope/destination, execute arbitrary GraphQL, dispatch mutations, consume confirmation or arm recovery. The graph MAY request preparation and return an opaque proposal reference and sanitized preview; confirmation and mutation dispatch SHALL execute separately from the graph. Graph completion/retry/resume SHALL NOT count as approval. Messages, logs and summaries SHALL remain untrusted data; model claims SHALL distinguish Dagster-backed facts from hypotheses. Ambiguous targets SHALL require clarification; invented identifiers SHALL fail normal target validation.
 
 #### Scenario: No model service is configured
-- **WHEN** a supported command enters from the DEV UI or Slack
-- **THEN** the compiled graph SHALL use deterministic interpretation, scoped tools and evidence templates successfully without model credentials or provider calls.
+- **WHEN** a supported command enters from the admin panel or Slack
+- **THEN** the shared workflow SHALL provide deterministic interpretation, scoped tool results and evidence-based responses without model credentials or provider calls.
 
 #### Scenario: Future language adapter proposes retry
 - **WHEN** its intent enters the application
@@ -148,7 +176,7 @@ Graph/model tools SHALL expose only authorized named reads and application-owned
 - **THEN** it SHALL neither create execution authority nor be treated as a verified outcome; only the shared policy and Dagster evidence SHALL establish them.
 
 ### Requirement: Typed Dagster tool catalog
-Named async tools SHALL wrap the existing scoped services with validated input/output schemas, descriptions and explicit read/preparation classification. Nodes SHALL call them deterministically in phase one; future model selection SHALL use the same allowed catalog. Reads SHALL return sanitized structured evidence; preparation SHALL produce only bounded in-memory proposals. Authenticated actor, endpoint, credentials, destination and policy scope SHALL come from trusted server runtime context, never tool inputs or model-mutable state. Every call SHALL enforce scope and freshness through shared services. Raw GraphQL and internal mutation executors SHALL NOT be registered as graph/model tools.
+Named tools SHALL expose validated inputs/outputs, descriptions and explicit read/preparation classification. Phase one SHALL select tools deterministically; future model selection SHALL use the same allowed catalog. Reads SHALL return sanitized structured evidence; preparation SHALL produce only bounded in-memory proposals. Authenticated actor, endpoint, credentials, destination and policy scope SHALL come from trusted server runtime context, never tool inputs or model-mutable state. Every call SHALL enforce scope and freshness through shared services. Raw GraphQL and internal mutation executors SHALL NOT be registered as graph/model tools.
 
 Repeated preparation for the same current-boot request and intent SHALL return its retained proposal/status; expiry, changed intent or missing state SHALL follow normal fresh-request rules. Preparation SHALL have no automatic retry policy and SHALL NOT expose confirmation nonces, full execution configuration or dispatch authority in graph state or model-visible results. Required preview target, mode, sanitized inputs, effects and warnings, plus operation outcome fields, SHALL be rendered directly from immutable application proposals/results. Interpreter/formatter prose MAY supplement but SHALL NOT alter or replace those fields.
 
