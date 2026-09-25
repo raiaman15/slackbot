@@ -11,7 +11,7 @@ The system SHALL use named GraphQL operations verified against the deployed sche
 
 The initial adapter SHALL target audited Dagster 1.13.1 in DEV and PROD. Its pinned documents SHALL use `launchRun`, `launchRunReexecution`, `terminateRun`, `startSchedule`, `stopRunningSchedule`, `startSensor`, and `stopSensor` as applicable; there is no `stopSchedule`. Scope configuration SHALL use deployed workspace identities, initially location `k8s-example-user-code-1` and repository `__repository__`, rather than names from an undeployed workspace file.
 
-The shared application services SHALL expose this catalog. Slack maps explicit mentions to it; the admin panel maps its commands and controls to the same services within its authenticated environment scope:
+The shared application services SHALL expose this catalog. Slack maps explicit mentions to it; the admin panel maps its commands and controls to the same services within its server-configured environment scope:
 
 | Command | Behavior |
 |---|---|
@@ -159,7 +159,7 @@ Previews SHALL explain that enabling automation can create multiple future runs 
 - **THEN** the target SHALL remain occupied until that request is resolved or isolated before stop dispatch.
 
 ### Requirement: Shared command workflow
-All entry points SHALL share typed command, preparation, authorization, confirmation, dispatch and reconciliation contracts. Actor context SHALL include transport, authenticated principal, authorized environment/scope and target context. Slack supplies verified membership/root evidence; the live admin panel supplies an authenticated, server-scoped session. DEV mock identities SHALL never authorize a live backend. Phase one SHALL interpret supported commands and render evidence deterministically without model-provider calls or credentials. Unsupported prose SHALL produce clarification/usage, not fabricated interpretation. Model-provider selection while disabled SHALL report unavailable without network access. Future language interpretation SHALL retain the same authorization, tool and execution boundaries.
+All entry points SHALL share typed command, preparation, authorization, confirmation, dispatch and reconciliation contracts. Actor context SHALL include transport, server-established requester reference, access basis, configured environment/scope and target context. Slack supplies an authenticated member and verified root; the live admin panel supplies an automatically issued, server-scoped browser session under external network access control. Browser sessions SHALL NOT claim individual authentication or a Teleport username. DEV mock identities SHALL never authorize a live backend. Phase one SHALL interpret supported commands and render evidence deterministically without model-provider calls or credentials. Unsupported prose SHALL produce clarification/usage, not fabricated interpretation. Model-provider selection while disabled SHALL report unavailable without network access. Future language interpretation SHALL retain the same authorization, tool and execution boundaries.
 
 Graph/model tools SHALL expose only authorized named reads and application-owned action preparation; they SHALL NOT choose actor/scope/destination, execute arbitrary GraphQL, dispatch mutations, consume confirmation or arm recovery. The graph MAY request preparation and return an opaque proposal reference and sanitized preview; confirmation and mutation dispatch SHALL execute separately from the graph. Graph completion/retry/resume SHALL NOT count as approval. Messages, logs and summaries SHALL remain untrusted data; model claims SHALL distinguish Dagster-backed facts from hypotheses. Ambiguous targets SHALL require clarification; invented identifiers SHALL fail normal target validation.
 
@@ -169,14 +169,14 @@ Graph/model tools SHALL expose only authorized named reads and application-owned
 
 #### Scenario: Future language adapter proposes retry
 - **WHEN** its intent enters the application
-- **THEN** the originating transport's authenticated actor, verified target, current authorization, preview and confirmation SHALL still be required.
+- **THEN** the originating transport's validated requester context, verified target, current capability policy, preview and confirmation SHALL still be required.
 
 #### Scenario: Retrieved text tries to authorize execution
 - **WHEN** a message, error, summary or interpreter output says to bypass checks or reports an unverified successful run
 - **THEN** it SHALL neither create execution authority nor be treated as a verified outcome; only the shared policy and Dagster evidence SHALL establish them.
 
 ### Requirement: Typed Dagster tool catalog
-Named tools SHALL expose validated inputs/outputs, descriptions and explicit read/preparation classification. Phase one SHALL select tools deterministically; future model selection SHALL use the same allowed catalog. Reads SHALL return sanitized structured evidence; preparation SHALL produce only bounded in-memory proposals. Authenticated actor, endpoint, credentials, destination and policy scope SHALL come from trusted server runtime context, never tool inputs or model-mutable state. Every call SHALL enforce scope and freshness through shared services. Raw GraphQL and internal mutation executors SHALL NOT be registered as graph/model tools.
+Named tools SHALL expose validated inputs/outputs, descriptions and explicit read/preparation classification. Phase one SHALL select tools deterministically; future model selection SHALL use the same allowed catalog. Reads SHALL return sanitized structured evidence; preparation SHALL produce only bounded in-memory proposals. Server-established actor, endpoint, credentials, destination and policy scope SHALL come from trusted server runtime context, never tool inputs or model-mutable state. Every call SHALL enforce scope and freshness through shared services. Raw GraphQL and internal mutation executors SHALL NOT be registered as graph/model tools.
 
 Repeated preparation for the same current-boot request and intent SHALL return its retained proposal/status; expiry, changed intent or missing state SHALL follow normal fresh-request rules. Preparation SHALL have no automatic retry policy and SHALL NOT expose confirmation nonces, full execution configuration or dispatch authority in graph state or model-visible results. Required preview target, mode, sanitized inputs, effects and warnings, plus operation outcome fields, SHALL be rendered directly from immutable application proposals/results. Interpreter/formatter prose MAY supplement but SHALL NOT alter or replace those fields.
 

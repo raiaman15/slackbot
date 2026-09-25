@@ -49,7 +49,7 @@ The user has chosen **no bot database**, replacing the prior PostgreSQL/two-repl
 
 Bot database provisioning and its failover qualification (former G4/G6) are removed from the bot release plan. Existing Dagster storage facts remain relevant to availability and loss of run evidence; an outage, restoration or incomplete history must not be interpreted as proof of no previous launch. Extra API checks reduce risk but cannot guarantee exactly-once execution or durable receipt/delivery.
 
-The later UI decision permits a private production admin panel. Company OIDC registration, exact subject-role allowlists and private HTTPS callback routing are new deployment gates, not facts verified in the photographed audit. DEV mock identities remain prohibited in production.
+The latest UI decision uses existing Teleport and loopback port-forward access in DEV and PROD, with no application sign-in, user roles or identity-provider dependency. Reachability grants the configured panel capabilities; the app cannot infer an individual Teleport identity from plain forwarded HTTP. Automatic browser sessions protect context and confirmation ownership only. Verify that the bot has no public exposure and its pod/Service cannot be reached by unintended cluster workloads; the photographed audit did not verify the new bot deployment. DEV mock identities remain prohibited in production.
 
 ## Findings and adopted changes
 
@@ -86,7 +86,7 @@ The reported platform uses ACD/ArgoCD, environment-specific image repositories/t
 | Dagster/job owners | Pinned schema/union fixtures, both retry failure classes, reliable pending/exhausted observations, full selection/partition/current-code behavior, queue-tag preservation |
 | Slack owner | Publisher and app/workspace/channel IDs/types, captured alert payload, bot scopes/membership and Socket Mode egress |
 | Data/job owners | Redaction/retention approval, launch presets and asset mappings |
-| Application/platform owners | Kyverno-compliant/pullable image, delivery manifests, secret rotation, independent alarms, production UI authentication and DEV mock isolation, human access instructions and end-to-end acceptance |
+| Application/platform owners | Kyverno-compliant/pullable image, delivery manifests, secret rotation, independent alarms, Teleport/port-forward access restrictions and DEV mock isolation, human access instructions and end-to-end acceptance |
 
 Audit observations close identification questions; they do not complete implementation tasks. The read-only rollout still requires working connectivity, authenticated Slack policy and approved data handling. Mutations additionally require complete GraphQL evidence, validated in-memory dispatch/restart behavior, operator commissioning and explicit enablement. Data-owner approvals and behavioral fixtures remain open unless separately evidenced; the v2 gap list does not itself close them.
 

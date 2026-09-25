@@ -22,25 +22,29 @@ The application SHALL serve the panel at `/admin`, its static assets, and typed 
 - **WHEN** a request supplies another environment, URL, mock actor or unsupported execution parameter
 - **THEN** the backend rejects it before contacting Dagster.
 
-### Requirement: Individual identity and least privilege
+### Requirement: Direct access through the private boundary
 
-Production access SHALL require company OIDC authorization-code authentication with PKCE, using a fixed issuer and validated signatures, audience, issuer, expiry, nonce, state and browser binding. Roles SHALL come from configured exact issuer/subject allowlists: `VIEWER` permits scoped reads and `OPERATOR` additionally permits enabled mutation preparation/confirmation; unmatched identities SHALL be denied. Browser-supplied usernames, roles, Slack identities or channel membership SHALL NOT establish authority. Neither role SHALL permit runtime arming, recovery overrides or excluded Dagster operations. Identity, current role and scope SHALL be checked on every request and within five seconds before dispatch. Production SHALL NOT use shared passwords or mock identities. Access SHALL remain private through approved TLS ingress or Teleport access. Missing authentication configuration SHALL block panel access without blocking otherwise valid Slack/core capabilities.
+When enabled, the panel SHALL open directly in DEV and PROD without application sign-in, passwords, identity-provider configuration or application roles. Access SHALL use the existing Teleport-authorized, loopback-bound port-forward; the deployment SHALL expose no public ingress for the panel and SHALL restrict direct workload access. Every caller that reaches the application SHALL have the same configured panel capabilities, subject to scope, mutation-gate and confirmation checks. Ordinary forwarded requests SHALL NOT be treated as proof of a Teleport username; browser-supplied names, roles or Slack identities SHALL NOT establish authority. The UI SHALL expose no runtime arming, recovery override or excluded Dagster operation.
 
-#### Scenario: A viewer calls an action endpoint directly
-- **WHEN** a verified viewer submits a launch preparation or confirmation without using the interface
-- **THEN** the shared authorization service rejects it; hiding buttons SHALL NOT be the security boundary.
+#### Scenario: An operator opens a forwarded production panel
+- **WHEN** the operator opens the panel through the configured private access path
+- **THEN** the Runs view opens without a sign-in screen; enabled actions remain subject to the shared mutation gate and confirmation rules.
 
-### Requirement: Protected browser sessions
+### Requirement: Protected browser context
 
-Opaque sessions SHALL be server-held in bounded memory and bound to individual identity and the current boot. They SHALL expire after 60 minutes absolute or 15 minutes idle, capped by the verified ID-token expiry. Cookies SHALL be HttpOnly and SameSite=Lax, with Secure required in production. State-changing requests SHALL require CSRF proof and validated Origin and Host; cross-origin API access SHALL be disabled. Production dispatch SHALL require an OIDC `auth_time` within five minutes; reauthentication SHALL require a new preview and SHALL NOT replay the action. Passwords, session secrets and bearer tokens SHALL NOT appear in URLs, browser storage, rendered configuration or logs. OIDC callback codes SHALL be excluded from logs and promptly removed from the address bar by redirect. Operational responses SHALL disable caching. Expiration SHALL show a sign-in-required state. Restart SHALL invalidate sessions and outstanding controls. DEV-only local login or mock identities SHALL never authenticate a production backend.
+The backend SHALL automatically issue opaque, boot-bound browser sessions held in bounded memory. Sessions SHALL identify browser context, not individual people, and SHALL expire after 60 minutes absolute or 15 minutes user inactivity; background polling SHALL NOT extend either limit. Cookies SHALL be HttpOnly and SameSite=Strict, use installation/environment-specific names, and follow the design's explicit loopback-HTTP or HTTPS configuration. State-changing requests SHALL require session-bound CSRF proof and exact configured Origin and Host; cross-origin API access SHALL be disabled. Session secrets SHALL NOT appear in URLs, browser storage, rendered configuration or logs. Operational responses SHALL disable caching. Opening or refreshing the panel SHALL create a new context automatically when needed, without sign-in. Expiration, renewal or restart SHALL invalidate old confirmation controls and open proposals; the panel SHALL request a new preview rather than replay a command. Observation of already submitted work SHALL continue independently while its retained operation exists.
 
 #### Scenario: A browser request is forged or stale
-- **WHEN** its session, CSRF proof, origin, principal or role is invalid
-- **THEN** it cannot prepare or confirm a live operation and receives a clear authorization failure without leaking operational data.
+- **WHEN** its session, CSRF proof or configured origin/host check is invalid
+- **THEN** it cannot prepare or confirm a live operation; the panel may establish a fresh context but SHALL NOT retry the original POST or restore its approval authority.
+
+#### Scenario: A session expires with a preview open
+- **WHEN** the panel obtains a fresh session after expiration or restart
+- **THEN** it remains directly usable without sign-in, marks the old preview unavailable, and requires a newly prepared action; no prior command or confirmation is replayed.
 
 ### Requirement: Minimal consistent layout
 
-The panel SHALL have a compact header, navigation for `Runs`, `Jobs`, `Assets`, `Automation`, `Activity` and `System`, and one main content area. `Runs` SHALL be the landing page. The header SHALL show application name, environment/mode, signed-in identity and connection state. Each page SHALL contain its title, a short explanation, relevant filters and a table or detail view. A right-side detail panel on desktop SHALL become a full-width view on small screens. Typography, spacing, borders and status badges SHALL be consistent; decorative charts, marketing content and a separate chat application SHALL NOT be required.
+The panel SHALL have a compact header, navigation for `Runs`, `Jobs`, `Assets`, `Automation`, `Activity` and `System`, and one main content area. `Runs` SHALL be the landing page. The header SHALL show application name, environment/mode and connection state. Each page SHALL contain its title, a short explanation, relevant filters and a table or detail view. A right-side detail panel on desktop SHALL become a full-width view on small screens. Typography, spacing, borders and status badges SHALL be consistent; decorative charts, marketing content and a separate chat application SHALL NOT be required.
 
 #### Scenario: A user opens the panel on a narrow screen
 - **WHEN** the viewport cannot show navigation and a detail panel side by side
@@ -67,7 +71,7 @@ Run errors SHALL explicitly describe structured Dagster evidence; the interface 
 
 ### Requirement: Complete approved action catalog
 
-An authorized operator SHALL be able to prepare whole-run re-execution or fresh copy from a selected eligible run; launch one job from an approved preset; request graceful cancellation of one exact run; materialize one mapped asset/partition; and start or stop one schedule or sensor. Required partitions SHALL be selected from verified existing keys. Forms SHALL NOT accept arbitrary configuration, raw tags, arbitrary GraphQL or multi-target operations. Read-only or unavailable actions SHALL remain identifiable with a concise reason. Enabling automation SHALL explicitly warn that it can create future runs beyond the bot's single run-family slot.
+A panel user SHALL be able to prepare whole-run re-execution or fresh copy from a selected eligible run; launch one job from an approved preset; request graceful cancellation of one exact run; materialize one mapped asset/partition; and start or stop one schedule or sensor. Required partitions SHALL be selected from verified existing keys. Forms SHALL NOT accept arbitrary configuration, raw tags, arbitrary GraphQL or multi-target operations. Read-only or unavailable actions SHALL remain identifiable with a concise reason. Enabling automation SHALL explicitly warn that it can create future runs beyond the bot's single run-family slot.
 
 #### Scenario: An asset lacks an approved mapping
 - **WHEN** a user opens its detail view
@@ -75,7 +79,7 @@ An authorized operator SHALL be able to prepare whole-run re-execution or fresh 
 
 ### Requirement: Shared commands and trusted context
 
-Commands and action-preparation controls SHALL construct typed turns for the same command workflow, deterministic interpretation/formatting, named tools, policies and redaction used by Slack. Browser components SHALL NOT implement authorization, Dagster semantics or a second execution path. Server-issued conversation IDs SHALL be scoped to the authenticated session and selected target, separate from Slack thread identities. A compact command input and response history in the detail view SHALL exercise supported text commands and future follow-ups; it SHALL not replace forms or required preview fields. Changing targets SHALL create a distinct context, never retarget existing proposals. Confirmation SHALL call the shared confirmation service directly, outside the command workflow.
+Commands and action-preparation controls SHALL construct typed turns for the same command workflow, deterministic interpretation/formatting, named tools, policies and redaction used by Slack. Browser components SHALL NOT implement authorization, Dagster semantics or a second execution path. Server-issued conversation IDs SHALL be scoped to the current browser session and selected target, separate from Slack thread identities. A compact command input and response history in the detail view SHALL exercise supported text commands and future follow-ups; it SHALL not replace forms or required preview fields. Changing targets SHALL create a distinct context, never retarget existing proposals. Confirmation SHALL call the shared confirmation service directly, outside the command workflow.
 
 #### Scenario: A user switches from one run to another
 - **WHEN** a preview for the first run remains open
@@ -83,11 +87,11 @@ Commands and action-preparation controls SHALL construct typed turns for the sam
 
 ### Requirement: Immutable action preview
 
-Every mutation SHALL display an application-generated preview containing action, environment, exact target IDs, selected retry mode, sanitized input/selection summary, current code, retry/queue effects, previous attempts and applicable warnings. The preview SHALL identify its requester and expiration. Confirmation SHALL be bound to the current principal, browser session, boot, context and immutable proposal; it SHALL be single-use and expire after five minutes. Changed inputs or evidence SHALL require a new preview. Model/formatter prose SHALL NOT replace mandatory fields. Buttons SHALL be named `Confirm <action>` and `Discard proposal`; run termination SHALL be named `Cancel run` and require its own preview.
+Every mutation SHALL display an application-generated preview containing action, environment, exact target IDs, selected retry mode, sanitized input/selection summary, current code, retry/queue effects, previous attempts and applicable warnings. The preview SHALL identify ownership as `This browser` and show expiration without claiming a human identity or exposing session secrets. Confirmation SHALL be bound to that browser session, boot, context and immutable proposal; it SHALL be single-use and expire after five minutes. Changed inputs or evidence SHALL require a new preview. Model/formatter prose SHALL NOT replace mandatory fields. Buttons SHALL be named `Confirm <action>` and `Discard proposal`; run termination SHALL be named `Cancel run` and require its own preview.
 
-#### Scenario: Two users receive the same preview reference
-- **WHEN** another principal or browser session attempts confirmation
-- **THEN** the shared service rejects it even if that user is an operator.
+#### Scenario: Another browser receives a preview reference
+- **WHEN** a different browser session attempts confirmation
+- **THEN** the shared service rejects it despite both sessions having the same configured capabilities; tabs sharing one session share its controls.
 
 ### Requirement: Honest status and no automatic replay
 
@@ -99,7 +103,7 @@ The panel SHALL label a DISARMED mutation gate as `Read only` and distinguish bu
 
 ### Requirement: Bounded lists and volatile activity
 
-Lists SHALL use server-validated filters, bounded pages and opaque pagination cursors; initial page size SHALL be 25 and maximum 100. A changed filter SHALL reset pagination. Partial results SHALL be labeled and SHALL NOT establish absence for mutation checks. The Activity view SHALL expose only authorized retained entries and their timestamps, with an explicit current-boot/volatile-history notice. Refresh or reconnect MAY recover verified run facts, but SHALL NOT restore sessions, approval authority or a durable command transcript. The interface SHALL contain no export presented as a complete immutable audit.
+Lists SHALL use server-validated filters, bounded pages and opaque pagination cursors; initial page size SHALL be 25 and maximum 100. A changed filter SHALL reset pagination. Partial results SHALL be labeled and SHALL NOT establish absence for mutation checks. The Activity view SHALL expose only current-session retained entries and their timestamps, with an explicit current-boot/volatile-history notice. Refresh or reconnect MAY recover verified run facts, but SHALL NOT restore expired sessions, approval authority or a durable command transcript. The interface SHALL contain no export presented as a complete immutable audit.
 
 #### Scenario: A result collection is incomplete
 - **WHEN** pagination, a dependency limit or GraphQL failure prevents full results
@@ -107,7 +111,7 @@ Lists SHALL use server-validated filters, bounded pages and opaque pagination cu
 
 ### Requirement: Accessible and safe interaction
 
-The interface SHALL target WCAG 2.2 AA: semantic landmarks and tables, persistent form labels, sufficient contrast, visible keyboard focus, keyboard-operable menus/dialogs, meaningful accessible names and status announcements. A modal confirmation dialog SHALL move and contain keyboard focus within it; closing SHALL return focus to its trigger. Escape SHALL close the dialog without executing, discarding the proposal or canceling a run; these effects require their explicit controls. Errors SHALL be associated with affected fields and preserve safe user input. Loading, empty, unavailable and unauthorized states SHALL each have distinct copy and a useful next step. Untrusted messages, stack traces and configuration SHALL render as escaped text; links SHALL be allowlisted and no HTML from Dagster or users SHALL execute.
+The interface SHALL target WCAG 2.2 AA: semantic landmarks and tables, persistent form labels, sufficient contrast, visible keyboard focus, keyboard-operable menus/dialogs, meaningful accessible names and status announcements. A modal confirmation dialog SHALL move and contain keyboard focus within it; closing SHALL return focus to its trigger. Escape SHALL close the dialog without executing, discarding the proposal or canceling a run; these effects require their explicit controls. Errors SHALL be associated with affected fields and preserve safe user input. Loading, empty, unavailable and expired-session states SHALL each have distinct copy and a useful next step. Untrusted messages, stack traces and configuration SHALL render as escaped text; links SHALL be allowlisted and no HTML from Dagster or users SHALL execute.
 
 #### Scenario: A run error contains hostile markup
 - **WHEN** its structured error is displayed or copied
@@ -115,7 +119,7 @@ The interface SHALL target WCAG 2.2 AA: semantic landmarks and tables, persisten
 
 ### Requirement: Isolated mock testing and production acceptance
 
-DEV mock mode SHALL use sanitized fixtures, fake Dagster responses and mock actors without live calls or credentials. Fixture/fault controls SHALL be DEV/mock-only; live environments SHALL offer no actor impersonation. The mock operator/test harness SHALL commission the fake runtime independently of the UI. Tests SHALL cover roles, sessions, CSRF, escaped content, keyboard/focus behavior, all catalog mappings, target isolation, confirmation ownership/expiry, duplicate clicks, restart, pagination gaps, retry families, queue delays and accepted-but-timeout outcomes. Live DEV acceptance SHALL prove workload connectivity and controlled actions; production acceptance SHALL additionally verify private authentication, real role enforcement, mock exclusion and initial read-only behavior. Slack scopes, trusted alert extraction, membership, Socket Mode and thread rendering SHALL have separate acceptance tests.
+DEV mock mode SHALL use sanitized fixtures, fake Dagster responses and mock actors without live calls or credentials. Fixture/fault controls SHALL be DEV/mock-only; live environments SHALL offer no actor impersonation. The mock operator/test harness SHALL commission the fake runtime independently of the UI. Tests SHALL cover direct opening without authentication dependencies, automatic sessions, CSRF, escaped content, keyboard/focus behavior, all catalog mappings, target isolation, confirmation ownership/expiry, duplicate clicks, restart, pagination gaps, retry families, queue delays and accepted-but-timeout outcomes. Live DEV acceptance SHALL prove workload connectivity and controlled actions; production acceptance SHALL additionally verify the Teleport/loopback access path, lack of public ingress, restricted direct workload access, mock exclusion and initial read-only behavior. Slack scopes, trusted alert extraction, membership, Socket Mode and thread rendering SHALL have separate acceptance tests.
 
 #### Scenario: A mock mutation becomes uncertain
 - **WHEN** the fake adapter records acceptance and then raises a timeout

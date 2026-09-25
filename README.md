@@ -12,7 +12,7 @@ Slack interaction remains in the existing failure thread:
 @bot retry
 ```
 
-The admin panel works without Slack credentials and supports authenticated production use. Both interfaces use the same LangGraph workflow and typed Dagster tools. Phase one uses deterministic parser/formatter implementations behind replaceable model interfaces, without model-provider calls or credentials. DEV mock/live modes and PROD live mode use shared previews, confirmations and execution checks. Mock identities remain DEV-only; PROD uses company OIDC and explicit roles.
+The admin panel works without Slack credentials and opens directly in DEV and PROD through the existing Teleport and loopback port-forward access. Both interfaces use the same LangGraph workflow and typed Dagster tools. Phase one uses deterministic parser/formatter implementations behind replaceable model interfaces, without model-provider calls or credentials. DEV mock/live modes and PROD live mode use shared previews, confirmations and execution checks. No application sign-in or user roles are required. Everyone who can reach the panel has its configured capabilities; automatic browser sessions only bind context, CSRF protection and confirmations. Mock identities remain DEV-only.
 
 ## OpenSpec plan
 
