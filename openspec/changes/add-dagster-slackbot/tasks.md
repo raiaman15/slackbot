@@ -4,16 +4,16 @@ Implementation is pending. The [audit](environment-audit.md) provides reported f
 
 ## 1. Shared application and offline contracts
 
-- [ ] 1.1 Build the FastAPI lifespan, typed actor/conversation/turn/target/intent/result contracts, versioned context builder, replaceable interpreter with finite parser, and named Dagster adapter. Verify no Slack/model dependency; fake-interpreter output cannot choose authority, destination or dispatch.
+- [ ] 1.1 Pin compatible LangGraph/tool-schema packages and compile the async workflow in FastAPI lifespan with typed turn/context/result contracts. Implement deterministic interpreter/formatter placeholders; test real graph read/preparation routes with no Slack/model credentials, checkpointing or external tracing.
 - [ ] 1.2 Add validated mock/live and DEV/PROD settings, single-process runtime, bounded RAM queues/maps and boot identity; verify no database/persistent-store dependency, all mutations disabled every boot, and invalid/mixed profiles rejected.
-- [ ] 1.3 Implement redaction, safe evidence models and structured telemetry; fixture-test secrets/PII, markup, truncation, selection/configuration handling and absence of raw errors/credentials in outputs or tags.
+- [ ] 1.3 Implement typed read/preparation tools, trusted runtime injection, redaction and safe telemetry. Verify secrets/PII, markup, truncation and selection/configuration handling; forged tool output cannot change authority or dispatch. Exclude raw graph state, unredacted/full execution inputs and confirmation nonces from model-visible or rendered output.
 
 ## 2. DEV workbench — independently deliverable
 
 - [ ] 2.1 Serve the small `/dev` page and typed session/command/operation routes; verify thread-like logs/status/config, mode choice, preview, confirmation and separate proposal/run cancellation use shared services without Slack credentials.
 - [ ] 2.2 Implement fixed startup mock/live mode, curated alert/run fixtures and server-bound DEV targets; verify no browser endpoint/environment/GraphQL override and no mock identity can reach real Dagster.
 - [ ] 2.3 Add DEV authentication, bounded in-memory sessions, CSRF and Origin/Host checks; verify unauthorized/cross-origin access fails, credentials avoid URLs/browser storage, and PROD exposes neither UI assets nor DEV routes.
-- [ ] 2.4 Add polling and explicit busy/expired/unknown/restarted states; verify no HTTP auto-replay and old-boot controls fail. Mock failure/retry and follow-up fixtures SHALL cover separate actors, context revision races, missing history, ambiguous references and hostile evidence without an LLM.
+- [ ] 2.4 Test actual graph invocation through the UI with failure/retry and follow-up fixtures: separate actors, context races, missing history, malformed placeholder outputs and hostile evidence. Verify scripted summaries cannot rewrite preview target/mode/warnings; step/deadline limits, replay/cancellation, no provider calls or graph mutations, HTTP no-replay and old-boot rejection.
 
 ## 3. Infrastructure and live DEV GraphQL
 
@@ -36,7 +36,7 @@ Implementation is pending. The [audit](environment-audit.md) provides reported f
 - [ ] 5.1 Slack/data owners: supply real app/publisher/workspace/channel identities, scopes, captured alert payload and approved redaction/retention rules. Verify exact full UUID extraction from the audited localhost/double-slash button without publisher changes or URL fetching.
 - [ ] 5.2 Implement optional Socket Mode intake and volatile bounded ACK/deduplication; verify prompt acknowledgement, duplicate events, reconnects, overload and loss on process exit without promising durable receipt or guaranteed redelivery.
 - [ ] 5.3 Implement exact trusted-root resolution, volatile/manual binding and paginated membership policy; verify shortened IDs, edits, ambiguous roots, unauthorized/shared channels and lost binding state fail safely.
-- [ ] 5.4 Map Slack commands/buttons/cards to shared services; verify conversation/request separation, root reply routing, requester identity, current-boot controls, membership freshness and repeat-attempt previews. Fixture-test bounded context-provider pagination/gaps and rebuild behavior; broader history/model use stays disabled in phase one.
+- [ ] 5.4 Route Slack command turns through the same graph as DEV and confirmation buttons directly to the confirmation service. Verify conversation/actor separation, root routing, current-boot controls, fresh membership, repeat-attempt previews and bounded context-provider gaps/rebuild. Broader history/model use stays disabled in phase one.
 - [ ] 5.5 Implement bounded in-memory notification retry/coalescing and scoped run lookup after restart; verify revoked destinations, ambiguous posts, exhausted retries and dropped state never reroute evidence or repeat execution.
 - [ ] 5.6 Run real Slack DEV acceptance for logs/status, both retry modes and cancellation; verify scopes, identity, event delivery, root lookup, rendering and membership independently of UI/service tests.
 

@@ -44,7 +44,7 @@ Live DEV SHALL require a server-authenticated developer session mapped to a conf
 
 ### Requirement: Shared commands and policies
 
-The console SHALL call the same parser, typed commands, authorization policies, previews, execution services, redaction, and Dagster adapter used by Slack. A normalized actor context SHALL contain the transport, authenticated principal, authorized scope, and target context. The DEV adapter SHALL establish DEV authorization; the Slack adapter SHALL separately establish Slack membership and trusted thread identity. Neither transport SHALL bypass shared safety checks. The UI SHALL render supported capabilities and explicit disabled reasons instead of implementing a second execution path.
+The console SHALL call the same compiled LangGraph workflow, deterministic model placeholders, typed tools, authorization policies, previews, execution services, redaction, and Dagster adapter used by Slack. A normalized actor context SHALL contain the transport, authenticated principal, authorized scope, and target context. The DEV adapter SHALL establish DEV authorization; the Slack adapter SHALL separately establish Slack membership and trusted thread identity. Confirmation SHALL bypass interpretation and use the shared confirmation service directly. Neither transport SHALL bypass shared safety checks. The UI SHALL render supported capabilities and explicit disabled reasons instead of implementing a second execution path.
 
 #### Scenario: A capability is disabled
 - **WHEN** a developer submits a disabled or out-of-scope command through the UI or its API directly

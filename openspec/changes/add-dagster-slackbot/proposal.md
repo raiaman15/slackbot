@@ -10,7 +10,7 @@ Engineers need to inspect and recover Dagster failures from their existing Slack
 - Require current requester confirmation and fresh evidence before actions; reconcile uncertain outcomes without automatic resubmission. Restart invalidates controls and requires operator rearming.
 - Build a minimal DEV-only mock/live console over shared application services, independently of Slack credentials.
 - Implement Slack mentions, trusted thread binding, membership checks and rendering as a separate adapter/workstream.
-- Define scoped conversation/turn context and a replaceable interpreter; leave LLM/LangGraph optional for phase two without changing approval or execution ownership.
+- Adopt LangGraph in phase one with scoped conversation/turn state, deterministic model placeholders and typed Dagster read/preparation tools. Later company-gateway implementations replace model interfaces; approval and dispatch remain application-owned.
 - Preserve both retry modes, logical inputs/current code, Dagster retry/queue rules and the scoped operation catalog.
 - Keep Dagster private on audited HTTP port 80, with explicit cross-namespace policy remediation and deployment admission checks.
 
@@ -31,4 +31,4 @@ None; no implemented capability baseline exists.
 
 ## Impact
 
-Requires Python application/UI code, Slack configuration, delivery manifests, a narrow policy change in the private Dagster deployment repository, tests and operator runbooks. No bot database, schema, migrations or storage provisioning is required. Existing Dagster persistence remains untouched. Raw compute logs are unavailable; expose structured errors. Deliver core/UI, live DEV execution, then Slack integration and controlled PROD rollout.
+Requires Python application/UI code, a pinned LangGraph dependency with necessary tool-schema support, Slack configuration, delivery manifests, a narrow policy change in the private Dagster deployment repository, tests and operator runbooks. No bot database, schema, migrations or storage provisioning is required. Existing Dagster persistence remains untouched. Raw compute logs are unavailable; expose structured errors. Deliver core/UI, live DEV execution, then Slack integration and controlled PROD rollout.

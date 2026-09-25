@@ -11,9 +11,11 @@ context: |
   original inputs/latest code, Dagster retries and one admitted bot-created family.
   Audit baseline: Dagster 1.13.1, private HTTP port 80, cross-namespace policy gate.
   One workspace, allowlisted channels, one PROD code location; isolated DEV.
-  Scoped conversation/turn context and a replaceable interpreter prepare for a future
-  company-gateway LLM or LangGraph adapter; graphs never own approval or mutation execution.
-  No LLM in phase one. Implementation and environment release checks remain pending.
+  LangGraph runs the phase-one workflow with deterministic interpreter/formatter
+  placeholders and typed Dagster read/preparation tools. Later model implementations
+  use the company gateway; approval and mutation dispatch remain outside graph replay.
+  No model-provider calls/credentials or graph persistence in phase one.
+  Implementation and environment release checks remain pending.
 
 rules:
   tasks:

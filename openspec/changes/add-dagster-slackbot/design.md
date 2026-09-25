@@ -8,7 +8,7 @@ The bot and self-hosted Dagster share a Kubernetes cluster within each environme
 
 ## Goals / Non-Goals
 
-Deliver deterministic in-thread operations and a small DEV console using the same application services. Preserve exact targets, requester confirmation, logical inputs/current code, and conservative handling of uncertain submissions. Exclude LLM dependencies, MCP, a broker, SQLite, Redis, persistent volumes/files, object-store ledgers, and Kubernetes objects used as an operation store or distributed lock. Do not access Dagster's database directly.
+Deliver deterministic in-thread operations and a small DEV console using the same LangGraph workflow and application services. Preserve exact targets, requester confirmation, logical inputs/current code, and conservative handling of uncertain submissions. Phase one includes LangGraph and necessary tool-schema dependencies but excludes model-provider clients/calls/credentials, MCP, a broker, SQLite, Redis, persistent volumes/files, object-store ledgers, and Kubernetes objects used as an operation store or distributed lock. Do not access Dagster's database directly.
 
 No durable request acceptance, restart-safe confirmations, guaranteed notification delivery, complete immutable audit, automatic mutation failover, or exactly-once execution is promised. Reads can resume automatically; every process restart requires operator reconciliation before mutations are re-enabled.
 
@@ -18,7 +18,7 @@ No durable request acceptance, restart-safe confirmations, guaranteed notificati
 
 ```mermaid
 flowchart TD
-  U["DEV console: optional"] --> A["FastAPI application services"]
+  U["DEV console: optional"] --> A["FastAPI: LangGraph and application services"]
   S["Slack Socket Mode adapter: optional in DEV"] --> A
   A --> M["Bounded process memory"]
   A --> D["Private Dagster Service: HTTP 80 /graphql"]
@@ -40,12 +40,43 @@ FastAPI lifespan owns pooled async HTTPX clients, optional async Slack SDK clien
 | Conversation / turn | Stable scoped conversation key; separate event/request ID, current actor, boot and context revision |
 | Target context | Exact run UUID/job/selection, trusted Slack root or explicit DEV fixture/run binding |
 | Context builder | Versioned sanitized snapshot: target, source-attributed messages, fresh Dagster facts, completeness and budgets |
-| Intent interpreter | Fixed parser now; optional future LLM/LangGraph adapter returning typed intent, clarification or evidence-backed answer |
+| Graph workflow | Compiled async LangGraph; bounded independent state for each authenticated turn |
+| Model interfaces | Deterministic interpreter/formatter now; company-gateway implementations later, with the same typed contracts |
+| Dagster tools | Typed scoped reads and action preparation; mutation execution stays in the confirmation service |
 | Application services | Resolve, read, prepare, select mode, confirm, dispatch once, reconcile, observe |
 | Dagster adapter | Pinned named GraphQL documents; separate bounded-read and submit-once paths |
 | Result | Operation ID, boot ID, state, safe evidence, proposed controls and delivery context |
 
-Shared services enforce capability/scope, current authorization, immutable preview, confirmation, admission, and execution checks. Slack membership verification and DEV session authentication are transport-specific proofs; browser-provided Slack IDs are never authority. The same interpreter contract and result models serve both interfaces. Phase one implements only the finite command parser; no model dependency or credentials are required.
+Shared services enforce capability/scope, current authorization, immutable preview, confirmation, admission, and execution checks. Slack membership verification and DEV session authentication are transport-specific proofs; browser-provided Slack IDs are never authority. Both adapters invoke the same compiled graph with shared interpreter/result contracts. Only model-provider integration waits for phase two.
+
+### LangGraph workflow and tools from phase one
+
+Compile one async `StateGraph` during FastAPI lifespan and invoke it for every authenticated command using `ainvoke`, fresh per-turn state and trusted runtime context. Pin and test compatible package versions at implementation. No checkpointer, store, `interrupt`/resume approval, hosted graph server or implicit tracing is configured. Initial limits are 20 graph steps and a 30-second total turn budget; nested tool calls respect the smaller remaining budget. Tune these through DEV measurements. Do not globally retry a graph invocation; only explicitly safe reads may retry within existing bounds.
+
+```mermaid
+flowchart TD
+  C["Build verified context"] --> I["Interpret request"]
+  I --> V["Validate intent and route"]
+  V --> R["Call scoped read tools"]
+  V --> P["Prepare immutable action preview"]
+  V --> F["Format answer, clarification or preview"]
+  R --> F
+  P --> F
+```
+
+The graph ends after producing a typed result. Transport code renders it and attaches saved controls. Mandatory preview fields (target, mode, sanitized inputs, effects and warnings) and operation outcome fields come directly from immutable application-owned proposals/results; model prose may supplement but never replace or rewrite them. A human confirmation is a separate authenticated interaction handled directly by the existing confirmation/dispatch service, never interpreted as prose or resumed through the graph. Run polling and notifications also remain independent; no graph waits for a button click or job completion.
+
+Implement functional placeholders: `interpret(turn, context)` uses the finite parser; `summarize(evidence, context)` uses deterministic evidence templates. They return typed results, explicit clarification or unsupported-language responses, never fabricated model output or a bare `pass`. A disabled provider adapter makes no network calls and reports unavailable if selected. Tests can inject scripted outputs. Later company-gateway implementations replace these functions without replacing Slack/UI routing, graph state, tool schemas or the action services; any added reasoning loops must retain bounded steps and permissions.
+
+Wrap named Dagster operations in typed async tools with explicit input/output schemas, descriptions and read/preparation classification. Use minimal LangChain-core tool wrappers where needed; no general-purpose agent stack is required. Nodes may invoke these tools deterministically today; a later model can select only the allowed catalog. Business parameters such as run ID, retry mode or cursor are validated normally. Actor, scope, endpoint, credentials and destination come from server runtime context, never tool arguments or model-writable state.
+
+| Tool class | Examples | Effect |
+|---|---|---|
+| Read | `get_run_status`, `get_failure_errors`, `get_redacted_config`, `list_runs`, `get_retry_family` | Scoped GraphQL queries returning sanitized structured evidence |
+| Prepare | `prepare_retry`, `prepare_cancel`, `prepare_schedule_change` | Existing application preparation; bounded RAM proposal only, no Dagster mutation |
+| Internal execution | `submit_once` with validated approved operation | Confirmation service only; absent from graph/model tool catalog |
+
+Do not expose `execute_graphql(query)` or automatically wrap every schema mutation. Repeated preparation for the same current-boot request/intent returns its retained proposal/status rather than minting new approvals; expiry or changed intent requires the normal fresh-request rules. Preparation has no automatic node retry. Keep secrets, full execution inputs and confirmation nonces in application services; graph state contains sanitized evidence and opaque proposal references. Never emit raw graph state through tracing/streaming: output schemas and private graph channels are not a redaction boundary.
 
 ### Conversation context and future LLM integration
 
@@ -57,9 +88,9 @@ Cache sanitized context in bounded RAM only. Refresh permissions and evidence be
 
 Serialize context updates per conversation within bounded intake, without holding the context lock while awaiting human input or job completion. Each clarification/response/proposal is tied to its triggering actor/request and context revision; a delayed model result cannot overwrite newer context or mutate another requester's proposal. Context-dependent intent must be revalidated against current evidence before preparation. This ordering does not replace runtime admission or requester-only confirmation. Even in phase two, unmentioned replies provide context only; a new bot turn requires an explicit mention or a valid bound interaction.
 
-LangGraph is an optional phase-two orchestration library inside FastAPI, useful if investigation needs branching reads and clarification. Start with a bounded graph invocation per turn, supplied with rebuilt context, without a persistent checkpointer. A graph execution ID remains separate from the Slack conversation key; checkpoint `thread_id` alone neither routes Slack replies nor authenticates users. Optional in-memory checkpoints expire and disappear on restart. Durable graph resumption would require a separately approved persistence change; do not add it implicitly.
+A graph execution ID remains separate from the stable conversation key. Each turn supplies rebuilt context without checkpoint resumption; a framework `thread_id` neither routes Slack replies nor authenticates users. Durable graph resumption would require a separately approved persistence change; it is not part of this database-free design.
 
-The future model client uses only the company AI gateway, after approved redaction and disclosure policy, with bounded calls/tokens/time and deterministic command fallback. No hosted agent service, LangSmith tracing or external telemetry is required or enabled by default. Graph tools may call authorized named read services and propose typed intents. They cannot invoke mutations, confirm controls, arm recovery, execute arbitrary GraphQL/shell, change scope or fabricate actor identity. End the graph at an answer, clarification or action proposal; application code prepares the preview and handles the human's single-use confirmation independently. Graph retry/replay therefore cannot repeat a Dagster mutation. Treat messages, logs and summaries as untrusted data; validate tool inputs and distinguish evidence-backed observations from hypotheses. Phase two requires injection, attribution, ambiguity, replay and gateway-failure tests before enablement.
+The future model client uses only the company AI gateway, after approved redaction and disclosure policy, with bounded calls/tokens/time and deterministic command fallback. No hosted agent service, LangSmith tracing or external telemetry is required or enabled by default. Graph tools may read evidence or request application-owned preparation; they cannot invoke mutations, confirm controls, arm recovery, execute arbitrary GraphQL/shell, change scope or fabricate actor identity. Treat messages, logs and summaries as untrusted data; validate tool inputs and distinguish evidence-backed observations from hypotheses. Phase two still requires gateway integration and injection, attribution, ambiguity, replay and quality tests before enablement; adopting LangGraph now reduces restructuring, not this validation work.
 
 ### Private Dagster contract
 
@@ -137,7 +168,7 @@ Initial defaults: four safe workers, one local mutation dispatcher; HTTP connect
 
 ## Migration Plan
 
-1. Implement shared contracts, mocked Dagster adapter and DEV console without Slack credentials or database infrastructure.
+1. Implement the compiled LangGraph workflow, deterministic model placeholders, typed tools, mocked Dagster adapter and DEV console without Slack/model credentials or database infrastructure.
 2. Close admission/image/network gates and verify live DEV reads, exact scope and redaction.
 3. Implement confirmed actions, discovery, uncertainty and restart recovery; exercise loss/crash/race scenarios before enabling writes.
 4. Build Slack intake, binding, membership and rendering as a separate workstream using the tested services.
@@ -152,5 +183,5 @@ Only environment evidence remains: exact workload/admission selectors and regist
 - [Dagster GraphQL](https://docs.dagster.io/api/graphql): verify the installed 1.13.1 schema and result contracts.
 - [Slack Socket Mode](https://docs.slack.dev/apis/events-api/using-socket-mode/) and [Events API](https://docs.slack.dev/apis/events-api/).
 - [Slack thread retrieval](https://docs.slack.dev/reference/methods/conversations.replies/) and [reply routing](https://docs.slack.dev/reference/methods/chat.postMessage/).
-- [LangGraph overview](https://docs.langchain.com/oss/python/langgraph/overview), [persistence](https://docs.langchain.com/oss/python/langgraph/persistence) and [interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts): phase-two options, not phase-one dependencies.
+- [LangGraph Graph API](https://docs.langchain.com/oss/python/langgraph/graph-api), [tools](https://docs.langchain.com/oss/python/langchain/tools) and [persistence](https://docs.langchain.com/oss/python/langgraph/persistence): compile a deterministic workflow now, without checkpointing or model-provider calls.
 - [Kubernetes deployment strategies](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy) and [NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/).

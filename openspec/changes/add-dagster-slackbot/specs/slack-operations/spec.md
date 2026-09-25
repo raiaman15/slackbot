@@ -8,7 +8,7 @@ Publisher and log-storage findings are recorded in the [environment audit](../..
 
 ### Requirement: Independently enabled Slack adapter
 
-Slack SHALL be a separate adapter and implementation workstream. With `SLACK_ENABLED=false`, the application and DEV workbench SHALL start without Slack credentials, API calls, connection tasks, or Slack-dependent readiness. When enabled, Socket Mode SHALL translate authenticated events and interactions into the same typed commands, actors, target contexts, approvals, and services used by other authorized adapters. Slack connection health SHALL be reported separately from Dagster, core, and workbench health. Slack failure SHALL NOT change an execution outcome or permit an alternative authorization path.
+Slack SHALL be a separate adapter and implementation workstream. With `SLACK_ENABLED=false`, the application and DEV workbench SHALL start without Slack credentials, API calls, connection tasks, or Slack-dependent readiness. When enabled, Socket Mode SHALL translate authenticated command turns into the same LangGraph workflow, typed actors, target contexts and services used by the DEV adapter. Confirmation interactions SHALL route directly to the shared confirmation service, without model interpretation or graph resumption. Slack connection health SHALL be reported separately from Dagster, core, and workbench health. Slack failure SHALL NOT change an execution outcome or permit an alternative authorization path.
 
 #### Scenario: Slack is not configured
 - **WHEN** Slack is disabled and the DEV workbench is enabled

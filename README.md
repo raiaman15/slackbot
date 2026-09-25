@@ -12,7 +12,7 @@ Slack interaction remains in the existing failure thread:
 @bot retry
 ```
 
-The DEV UI works without Slack credentials. Its mock/live-DEV modes exercise the same previews, confirmations and execution checks; its routes are absent in PROD. Phase one has no LLM.
+The DEV UI works without Slack credentials. Both interfaces use the same LangGraph workflow and typed Dagster tools. Phase one uses deterministic parser/formatter implementations behind replaceable model interfaces, without model-provider calls or credentials. Mock/live-DEV modes exercise shared previews, confirmations and execution checks; DEV routes are absent in PROD.
 
 ## OpenSpec plan
 

@@ -9,11 +9,20 @@ The [environment audit](../../environment-audit.md) records reported infrastruct
 ### Requirement: Dagster is the only persistent execution source
 The bot SHALL use Dagster GraphQL for persisted run evidence and SHALL have no bot database, SQLite, Redis, persistent files/volume, object-store ledger, or Kubernetes coordination objects. State SHALL remain in bounded process memory. Platform logs SHALL contain redacted diagnostic events, not function as a work queue or recovery ledger. The system SHALL NOT promise durable command receipt, durable approvals, complete audit history, reliable notification delivery, or exactly-once execution.
 
-Any future model/graph context SHALL obey the same bounded-memory contract. Checkpoint identifiers SHALL NOT authenticate users or authorize execution. Reconstructed Slack/Dagster context SHALL NOT resume an interrupted graph, restore approval or rearm mutations after restart. Hosted persistence, external tracing and durable checkpointers SHALL NOT be introduced as implicit framework dependencies.
+Graph state and future model context SHALL obey the same bounded-memory contract. Checkpoint identifiers SHALL NOT authenticate users or authorize execution. Reconstructed Slack/Dagster context SHALL NOT resume an interrupted graph, restore approval or rearm mutations after restart. Hosted persistence, external tracing and checkpointers SHALL NOT be introduced as implicit framework dependencies.
 
 #### Scenario: Process state disappears
 - **WHEN** a restart loses commands, proposals, bindings, or notifications
 - **THEN** the bot SHALL report unavailable session context, reject old controls, and recover only facts positively established through scoped Dagster queries; missing memory SHALL NOT mean no launch occurred.
+
+### Requirement: Bounded LangGraph workflow
+FastAPI lifespan SHALL compile a pinned, compatible async `StateGraph` once, with independent state per authenticated turn. Trusted actor/scope/dependencies SHALL be injected through server runtime context and SHALL NOT be writable by interpreter output. Nodes SHALL build context, interpret, validate/route, call scoped read/preparation tools and format typed results. Graph output SHALL end at an answer, clarification or sanitized preview; human confirmation SHALL use the existing application service through a separate authenticated interaction. Polling and notifications SHALL remain independent of graph execution.
+
+Phase one SHALL configure no checkpointer, store, interrupt/resume approval, hosted graph service or automatic tracing. Initial budgets SHALL be 20 graph steps and 30 seconds per turn, with nested calls bounded by remaining time. Whole-graph automatic retry SHALL be disabled; only safe reads MAY use existing bounded retries. Raw graph-state streaming/logging SHALL be prohibited; private state channels and output schemas SHALL NOT substitute for redaction. Provider failure or malformed output SHALL never fall through to execution.
+
+#### Scenario: Graph preparation is interrupted or replayed
+- **WHEN** a graph errors, exceeds its budget, is canceled or repeats preparation
+- **THEN** it SHALL perform no Dagster mutation; retained proposals remain subject to original identity/expiry and confirmation rules, and restart SHALL invalidate them.
 
 ### Requirement: Private Dagster connection
 The application SHALL use the configured environment's release-qualified private Service `/graphql`, with audited HTTP port 80 and network-only access; it SHALL NOT accept endpoints or credentials from commands. Redirects SHALL be disabled and later HTTPS SHALL verify certificates. The bot SHALL require no runtime Teleport tunnel, public ingress, Kubernetes execution/log privileges, or access to Dagster storage. Platform owners SHALL confirm mesh enrollment and request-retry behavior before mutations; absent sidecars or namespace labels SHALL NOT prove mesh absence.
