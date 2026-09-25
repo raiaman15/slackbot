@@ -4,7 +4,7 @@
 
 Consolidated from the original seven photographs (1719–1725) and the six-photo v2 follow-up (1726–1731) of an internal `environment-audit.md`. The audits report Kubernetes/GraphQL inspection and publisher-source review; v2 also attempted and deleted an ephemeral probe. V2 confirms earlier spec fixes, not completion of their infrastructure tasks. **These are reported observations, not live checks repeated during this documentation update.** Infrastructure may drift; implementation must reconfirm its actual workload path.
 
-This public copy omits company cluster names, namespaces, database/registry/Teleport hosts and Slack channel names. The earlier private companion `slackbot-infrastructure-audit-private.md` retains the v1 exact inventory and historical recommendations; this repository supersedes its bot database recommendations. Deployers supply current values through controlled environment configuration. No photos or private inventory belong in this public repository.
+This public copy omits company cluster names, namespaces, database/registry/Teleport hosts and Slack channel names. Exact identifiers remain in the source audit and controlled deployment configuration; this public plan does not depend on a separate unpublished companion file. Deployers supply and reconfirm current values through controlled environment configuration. No photos or private inventory belong in this public repository.
 
 | Photo | Evidence covered |
 |---|---|
@@ -47,7 +47,7 @@ Port-forward queries establish the server contract, **not** bot-to-Service reach
 
 The user has chosen **no bot database**, replacing the prior PostgreSQL/two-replica plan. Use one process, bounded memory and supported Dagster GraphQL evidence; a private admin panel and Slack adapter share application services. Every boot disarms all mutations pending operator reconciliation. No SQLite, persistent queue, volume or hidden coordination store is introduced.
 
-Bot database provisioning and its failover qualification (former G4/G6) are removed from the bot release plan. Existing Dagster storage facts remain relevant to availability and loss of run evidence; an outage, restoration or incomplete history must not be interpreted as proof of no previous launch. Extra API checks reduce risk but cannot guarantee exactly-once execution or durable receipt/delivery.
+G6 (the bot DEV database choice) and bot-specific database provisioning/failover qualification are superseded. G4 concerns the existing PROD Dagster database: engine, writer fencing and acknowledged-commit durability remain unconfirmed dependency risks. The no-bot-database decision does not close G4 or establish Dagster HA/durability. Existing Dagster storage facts remain relevant to availability and loss of run evidence; an outage, restoration or incomplete history must not be interpreted as proof of no previous launch. Extra API checks reduce risk but cannot guarantee exactly-once execution or durable receipt/delivery.
 
 The latest UI decision uses existing Teleport and loopback port-forward access in DEV and PROD, with no application sign-in, user roles or identity-provider dependency. Reachability grants the configured panel capabilities; the app cannot infer an individual Teleport identity from plain forwarded HTTP. Automatic browser sessions protect context and confirmation ownership only. Verify that the bot has no public exposure and its pod/Service cannot be reached by unintended cluster workloads; the photographed audit did not verify the new bot deployment. DEV mock identities remain prohibited in production.
 
@@ -81,7 +81,7 @@ The reported platform uses ACD/ArgoCD, environment-specific image repositories/t
 
 | Owner | Required evidence |
 |---|---|
-| Platform + Dagster deployment owners | Approved cross-namespace policy change; actual namespace/pod selectors; allowed/denied traffic tests; ambient-mesh status; webserver replica drift resolution |
+| Platform + Dagster deployment owners | Approved cross-namespace policy change; actual namespace/pod selectors; allowed/denied traffic tests; ambient-mesh status; webserver replica drift resolution; existing Dagster storage engine/recovery semantics or an explicitly documented unknown (G4) |
 | Platform/application operators | One active process, audited exec/local recovery CLI, prior-submitter isolation and post-restart reconciliation; no bot database is requested |
 | Dagster/job owners | Pinned schema/union fixtures, both retry failure classes, reliable pending/exhausted observations, full selection/partition/current-code behavior, queue-tag preservation |
 | Slack owner | Publisher and app/workspace/channel IDs/types, captured alert payload, bot scopes/membership and Socket Mode egress |
@@ -92,11 +92,13 @@ Audit observations close identification questions; they do not complete implemen
 
 ## Verification record and implementation trace
 
+The 25 September specification re-audit reconciles these photo findings with the current database-free, direct-access UI design. It adds implementation decisions and acceptance checks, not new observations of the private clusters.
+
 V1 reports read-only topology/configuration and GraphQL checks through temporary port-forwards, subsequently closed. V2 additionally reports a cross-namespace query timeout from an existing DEV companion pod without restrictive egress, consistent with the still-unapplied Dagster ingress allowance. This is negative DEV evidence, not successful bot access or a PROD workload test.
 
 The attempted same-namespace ephemeral probe encountered admission requirements, then image-pull failure, and was deleted. Healthy endpoints and port-forward queries do not substitute for its missing positive workload test. The original commands contain placeholders/abbreviated GraphQL and are procedure outlines, not executable fixtures. No cluster operations were performed by this documentation update.
 
-V2 marks F1–F10 addressed in specifications while G1 policy remediation, G2 mesh confirmation, G3 replica drift and G5 Slack identities remain operational work. G4/G6 bot database planning is superseded above. The blanket v2 heading “all confirmed live” does not resolve its explicitly inferred engine/mesh details. Local-copy README hygiene F11 does not justify renaming this repository's valid change/config paths.
+V2 marks F1–F10 addressed in specifications while G1 policy remediation, G2 mesh confirmation, G3 replica drift and G5 Slack identities remain operational work. G4 remains an unconfirmed Dagster storage dependency risk; G6 bot database planning is superseded above. The blanket v2 heading “all confirmed live” does not resolve its explicitly inferred engine/mesh details. Local-copy README hygiene F11 does not justify renaming this repository's valid change/config paths.
 
 Implementation mapping: task groups 1–2 deliver independent core/admin UI; group 3 closes admission/network/GraphQL contracts; group 4 delivers no-database execution/recovery; group 5 owns Slack integration; group 6 verifies PROD. Behavioral requirements are in the four [specs](specs/); architecture is in [design](design.md).
 

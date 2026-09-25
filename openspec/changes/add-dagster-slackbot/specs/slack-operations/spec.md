@@ -18,7 +18,7 @@ Slack SHALL be a separate adapter and implementation workstream. With `SLACK_ENA
 
 The adapter SHALL accept supported new human messages containing its exact mention and derive the requester from authenticated context. It SHALL ignore bots, self-events, missing human identities, edits/deletions, unsupported subtypes, hidden/system messages, and unmentioned replies; trusted publisher messages remain eligible roots. Phase one SHALL use bounded, documented, case-insensitive grammar without an LLM. Bare mentions show actions; unknown flags, oversized input, and unsupported prose return usage. Plain assent SHALL NOT confirm actions.
 
-Socket envelopes SHALL be acknowledged promptly after bounded in-memory admission; Dagster queries and membership checks follow acknowledgement. Acknowledgement means volatile receipt, not durable acceptance or execution. Full queues SHALL reject work with a best-effort busy response without depending on Slack redelivery. Event deduplication SHALL use workspace/event identity independently of envelope identity; interaction deduplication SHALL use saved approval state. Deduplication is bounded and lost on restart. Replayed commands MAY prepare a new preview but SHALL NOT execute without a current explicit confirmation and shared dispatch checks.
+Mention and interactive-control envelopes SHALL be acknowledged within three seconds after bounded local intake handling, including duplicates, rejections and full-queue outcomes. Dagster queries, membership/root checks and confirmation processing follow acknowledgement. ACK SHALL NOT consume approval or imply execution. Acknowledgement means volatile receipt, not durable acceptance or execution. Full queues SHALL reject work with a best-effort busy response without depending on Slack redelivery. Event deduplication SHALL use workspace/event identity independently of envelope identity; interaction deduplication SHALL use saved approval state. Deduplication is bounded and lost on restart. Replayed commands MAY prepare a new preview but SHALL NOT execute without a current explicit confirmation and shared dispatch checks.
 
 #### Scenario: Duplicate receipt or restart
 - **WHEN** Slack delivers a repeated event during a process lifetime, or replays it after restart
@@ -26,13 +26,17 @@ Socket envelopes SHALL be acknowledged promptly after bounded in-memory admissio
 
 ### Requirement: Exact trusted failure identity
 
-Failure-specific `logs`, `status`, `config`, and `retry` SHALL require an existing root distinct from the command timestamp. Workspace, channel, and timestamps SHALL come from authenticated context; timestamps remain strings. The adapter SHALL retrieve that exact root, verify configured publisher and alert shape, and extract one full UUID from trusted fields or configured patterns without fetching URLs or ingesting whole conversations. Shared services SHALL verify environment, code location, repository, job, and available partition evidence. Missing, inaccessible, untrusted, ambiguous, or out-of-scope roots SHALL fail with an explanation; suffix matches and latest-run selection SHALL NOT establish identity.
+Failure-specific `logs`, `status`, `config`, and `retry` SHALL require an existing root distinct from the command timestamp. Workspace, channel, and timestamps SHALL come from authenticated context; timestamps remain strings. The adapter SHALL retrieve that exact root through the supported history API, require exact timestamp equality rather than accept a neighboring result, verify configured publisher and alert shape, and extract one full UUID from trusted fields or configured patterns without fetching URLs or ingesting whole conversations. Shared services SHALL verify environment, code location, repository, job, and available partition evidence. Missing, inaccessible, untrusted, ambiguous, or out-of-scope roots SHALL fail with an explanation; suffix matches and latest-run selection SHALL NOT establish identity.
 
 For the audited dagster-slack 1.13.1 publisher, primary extraction SHALL use the `View in Dagster UI` button matching `http://127.0.0.1:8080//runs/<full-uuid>`, including the doubled slash. The shortened visible UUID SHALL NOT identify the run. This pattern requires no publisher rewrite, but enabling trusted binding SHALL require a captured payload and verified publisher bot/app, workspace, and channel IDs. The URL is parsed, never fetched or offered as an employee link.
 
 #### Scenario: Short text and full button UUID
 - **WHEN** a verified root contains one matching full UUID in its button URL
 - **THEN** the adapter binds that verified run without requiring copied IDs or fetching the URL.
+
+#### Scenario: The exact root was deleted
+- **WHEN** history lookup returns no message or a timestamp other than the requested root
+- **THEN** binding SHALL fail without selecting the neighboring message or its run.
 
 #### Scenario: Identity is incomplete
 - **WHEN** only a suffix, neighboring message, or unknown URL pattern is available
@@ -41,6 +45,12 @@ For the audited dagster-slack 1.13.1 publisher, primary extraction SHALL use the
 ### Requirement: Stable process-lifetime binding
 
 The in-memory workspace/channel/root binding SHALL retain the original failure. Children, listings, status updates, and edited alerts SHALL NOT retarget it. Explicit eligible related-run selection belongs only to its operation. `bind <full-run-id>` MAY recover a trusted alert lacking a full ID after evidence verification, a provenance/target preview, and requester confirmation; conflicts SHALL refuse replacement. Revalidation SHALL detect changed root evidence. After restart, automatic bindings require fresh root verification and manual bindings require renewed confirmation. An edited root without a saved, verifiable original SHALL NOT establish a binding.
+
+Manual binding confirmation SHALL revalidate the requester, trusted root and scoped run, then atomically consume its control and store the current-boot binding only if no conflicting binding exists. It SHALL complete as a local action, without requiring an armed mutation gate, acquiring a run slot or sending any Dagster mutation.
+
+#### Scenario: Manual binding while mutations are disarmed
+- **WHEN** an authorized requester confirms a fully verified, unexpired manual binding and no conflicting binding exists
+- **THEN** the bot SHALL store that binding and complete the operation without dispatching to Dagster; missing evidence still prevents binding.
 
 #### Scenario: Child run or lost binding
 - **WHEN** a retry creates a child, or the process restarts
@@ -82,7 +92,7 @@ Reads SHALL use membership evidence at most 30 seconds old. Mutations SHALL fres
 
 ### Requirement: Requester-approved immutable previews
 
-Every Dagster mutation and manual binding SHALL require the original requester's explicit approval. Other members SHALL NOT confirm, change mode, or cancel that proposal, but MAY create their own. Retry SHALL offer whole-run re-execution and a fresh copy, explaining lineage, current-code behavior, verified automatic retry policy, and possible queueing. Previews SHALL identify exact target/effect, source, job, environment, partition/selection, and incompatibilities. Schedule/sensor starts SHALL explain future runs outside the bot slot. Material changes require renewed preview. A completed earlier attempt for the same source requires explicit repeat acknowledgement; active, pending, or unresolved attempts cannot be bypassed by changing mode.
+Every Dagster mutation and manual binding SHALL require the original requester's explicit approval. Other members SHALL NOT confirm, change mode, or cancel that proposal, but MAY create their own. Retry SHALL offer whole-run re-execution and a fresh copy, explaining lineage, current-code behavior, verified automatic retry policy, and possible queueing. Previews SHALL identify exact target/effect, source, job, environment, partition/selection, and incompatibilities. Schedule/sensor starts SHALL explain future runs outside the bot slot. Material changes require renewed preview. A completed earlier attempt for the same source SHALL set immutable repeat_required and expose only `Confirm repeat <action>`, bound to the listed prior-attempt evidence; active, pending, or unresolved attempts cannot be bypassed by changing mode.
 
 #### Scenario: Different actor or changed preparation
 - **WHEN** another member clicks a control, or material action details change
@@ -90,7 +100,7 @@ Every Dagster mutation and manual binding SHALL require the original requester's
 
 ### Requirement: Expiring process-bound controls
 
-Confirmation SHALL expire five minutes after preview preparation and bind boot ID, operation, requester, workspace, channel, root, saved card, mode, immutable intent/preview, and single-use interaction reference. Under process-local synchronization, every binding and state SHALL match before consumption. Controls SHALL carry opaque references only; browser/message-supplied identities, targets, or configuration SHALL NOT override saved state. Restart, expiry, supersession, or eviction of an eligible proposal invalidates its controls. Fresh confirmation SHALL NOT override disabled mutations or uncertain dispatch.
+Confirmation SHALL expire five minutes after preview preparation and bind boot ID, operation, requester, workspace, channel, root, saved card, mode, immutable intent/preview, and single-use interaction reference. Under process-local synchronization, every binding and state SHALL match before consumption. Controls SHALL carry opaque references only; browser/message-supplied identities, targets, or configuration SHALL NOT override saved state. Restart, expiry, supersession, or eviction of an eligible proposal invalidates its controls. Fresh confirmation SHALL NOT override disabled mutations or uncertain dispatch; a verified local manual binding follows its separate non-mutation confirmation rule.
 
 #### Scenario: Duplicate or old-boot interaction
 - **WHEN** a confirmation is duplicated or belongs to an earlier process

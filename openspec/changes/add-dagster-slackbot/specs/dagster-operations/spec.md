@@ -16,7 +16,7 @@ The shared application services SHALL expose this catalog. Slack maps explicit m
 | Command | Behavior |
 |---|---|
 | `help`, `health`, `capabilities` | Usage, safe dependency health, enabled capabilities and missing prerequisites |
-| `jobs` | Jobs, repositories, partitioning |
+| `jobs`, `job <name>` | Jobs/repositories; selected definition, partition requirements, validated preset choices and unavailable reasons |
 | `runs`, `failed` | Runs with status, time, job filters |
 | `status` | Bound run, steps, timing, lineage, operation and retry state |
 | `logs` | Redacted structured errors, cause chains and stacks |
@@ -25,9 +25,10 @@ The shared application services SHALL expose this catalog. Slack maps explicit m
 | `launch <job> --preset <name>` | One run from a validated preset |
 | `cancel [run-id]` | Gracefully cancel one exact active or queued run |
 | `assets`, `asset <key>` | Asset materialization and check state |
-| `partitions <job-or-asset>` | List or validate existing partition keys |
+| `partitions <job-or-asset> --type job/asset` | List or validate existing partition keys |
 | `materialize <asset> --partition <key>` | One asset/partition through a verified mapping |
-| `schedules`, `sensors` | Definitions, state and ticks |
+| `schedules`, `sensors` | Definition names and current state |
+| `schedule <name>`, `sensor <name>` | Exact definition with bounded tick history, run references and sanitized errors |
 | `schedule start/stop <name>` | Set one schedule's desired state |
 | `sensor start/stop <name>` | Set one sensor's desired state, preserving its cursor |
 | `operation <id>` | Current-context in-memory operation, or positively identified Dagster run facts; lost controls cannot be recovered |
@@ -36,6 +37,10 @@ The shared application services SHALL expose this catalog. Slack maps explicit m
 #### Scenario: Listing and selecting an authorized target
 - **WHEN** an authorized user requests a supported job, run, asset, partition or automation listing
 - **THEN** results SHALL retain exact scoped identifiers and report truncation with a scoped pagination control; selecting an item SHALL validate that identifier without guessing a different target.
+
+#### Scenario: A selected definition needs detail
+- **WHEN** a user opens one job, schedule or sensor from a listing
+- **THEN** the matching scoped detail read SHALL provide validated preset/partition choices or bounded tick history and unavailable reasons, without exposing secret configuration or loading every definition's history.
 
 #### Scenario: Capability or target is unsupported
 - **WHEN** an operation lacks verified schema support or targets another scope
@@ -192,8 +197,12 @@ The bot SHALL use supported GraphQL queries and created-run tags for execution e
 - **THEN** the system SHALL return verified run facts without replaying submission or recreating lost confirmation authority; if no match can be established, it SHALL report unknown/unavailable rather than never submitted.
 
 ### Requirement: Previous attempts require explicit review
-Before either retry mode, the system SHALL inspect bot-created attempts for the source across both modes, alongside the source's automatic retry family. A mode switch SHALL NOT bypass active, pending or unknown prior work. A positively matched original request SHALL return its existing result. A deliberately new request after conclusive completion SHALL show previous attempts and require explicit repeat acknowledgement in a fresh preview; changed prior-attempt evidence SHALL invalidate confirmation. These are evidence checks, not atomic exclusion of external Dagster activity.
+Before either retry mode, the system SHALL inspect bot-created attempts for the source across both modes, alongside the source's automatic retry family. A mode switch SHALL NOT bypass active, pending or unknown prior work. A positively matched original request SHALL return its existing result. A deliberately new request after conclusive completion SHALL show previous attempts and require explicit `Confirm repeat <action>` acknowledgement in a fresh preview; the control SHALL bind the repeat flag and listed prior-attempt evidence, and a generic confirm control SHALL NOT be offered; changed prior-attempt evidence SHALL invalidate confirmation. These are evidence checks, not atomic exclusion of external Dagster activity.
 
 #### Scenario: Fresh copy follows a linked re-execution
 - **WHEN** the earlier bot-created family remains queued, active, pending retry or unresolved
 - **THEN** the fresh-copy action SHALL be refused or deferred; changing lineage mode SHALL NOT create a parallel attempt.
+
+#### Scenario: Requester repeats a completed attempt
+- **WHEN** a fresh preview acknowledges a conclusively completed prior attempt
+- **THEN** only an explicit repeat-labeled control bound to the displayed history SHALL confirm it; changed history SHALL invalidate the preview, and generic or old controls SHALL not dispatch.
