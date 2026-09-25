@@ -98,9 +98,15 @@ For eligible sources, `retry` SHALL offer whole-run re-execution and fresh copy.
 ### Requirement: Faithful logical inputs and effects
 Both modes SHALL preserve complete logical configuration, partition intent, op/step selection, asset selection, asset-check selection and applicable user/business/policy tags through supported inputs. Null and empty selections SHALL remain distinct. Lineage or provenance SHALL NOT substitute for selection preservation. The preview SHALL show complete partition-range effects; one run SHALL NOT imply one asset or partition. Unsupported source intent SHALL be refused rather than narrowed or broadened.
 
+The immutable private proposal SHALL retain the exact source `runConfigYaml` response and a safe fingerprint for pre-dispatch revalidation. Submission SHALL use a representation verified against the pinned `RunConfigData` scalar, preserving types, null/empty values and logical secret references. Conversion SHALL prove logical equivalence or refuse; rendered/redacted configuration and model output SHALL NOT supply execution inputs. Current-definition validation SHALL still apply. Raw configuration SHALL remain in bounded application memory, outside graph state, logs and correlation tags.
+
 #### Scenario: Source has subsets or a partition range
 - **WHEN** either retry mode is prepared
 - **THEN** the preview and request SHALL reproduce the complete original selections and range, including null/empty distinctions, or refuse execution.
+
+#### Scenario: Configuration conversion changes meaning
+- **WHEN** converting the captured configuration cannot preserve a quoted value, null/empty distinction, type or logical reference
+- **THEN** the adapter SHALL refuse preparation rather than submit altered inputs; changed source configuration after preparation SHALL invalidate confirmation.
 
 ### Requirement: Current code and fresh execution bookkeeping
 The system SHALL validate preserved inputs against current definitions without restoring historical images. The adapter SHALL record and recheck schema-supported deployment/definition identifiers and input validation evidence; unverifiable reproduction SHALL disable that action. Configuration or tags forcing historical code SHALL cause refusal, not silent modification. Observable source, code, definition or policy changes invalidating a preview SHALL require new preparation and confirmation.
@@ -122,13 +128,23 @@ The system SHALL inspect descendants and retry-pending state during preparation 
 
 The audited instance defaults are DEV `max_retries: 2`, PROD `max_retries: 3`, and both `retry_on_asset_or_op_failure: false`. Previews and completion checks SHALL use verified effective policy, including run-level overrides and failure classification, rather than assume every failure retries or these defaults always apply. DEV fixtures SHALL cover an op/dbt failure without automatic retry and an induced worker-crash retry family, including its pending-child gap. Run monitoring SHALL remain authoritative for transitions it causes; its audited settings are a 600-second start timeout, zero resume attempts, and 120-second polling.
 
+The adapter SHALL derive PENDING / NOT_PENDING / UNKNOWN from complete, version-verified tag/event evidence, effective policy and actual descendants; it SHALL NOT expect a first-class retry-pending GraphQL field. Missing metadata required by the pinned failure/retry semantics, incomplete history, conflicts or unproven exhaustion SHALL yield UNKNOWN and block admission. Terminal success/cancellation SHALL NOT require a retry-decision marker where verified semantics prove no automatic retry applies; whole-family checks SHALL still apply. An absent child, quiet interval or remaining-attempt calculation alone SHALL NOT prove NOT_PENDING. Historical parent markers SHALL be reconciled with actual children before assessing outstanding work.
+
 #### Scenario: Automatic child has not appeared
-- **WHEN** Dagster reports an automatic retry pending
+- **WHEN** verified Dagster evidence yields a PENDING retry assessment
 - **THEN** the bot SHALL report that state and refuse a parallel manual retry even without a child run ID.
+
+#### Scenario: Failure appears before the retry decision
+- **WHEN** a failed run has no child and required retry-decision evidence is missing or not yet published
+- **THEN** the assessment SHALL remain UNKNOWN, hold admission and continue bounded observation; it SHALL NOT infer exhaustion from elapsed time.
 
 #### Scenario: Ordinary code failure has no automatic retry
 - **WHEN** effective policy and authoritative run evidence confirm no retry is pending for an op/dbt failure
 - **THEN** the bot SHALL offer an eligible manual retry without inventing a pending child or unused-attempt count.
+
+#### Scenario: Successful family needs no retry marker
+- **WHEN** complete evidence shows a terminal family with no outstanding retry, and pinned semantics require no retry-decision marker for its successful members
+- **THEN** the adapter SHALL return NOT_PENDING rather than hold admission solely because those markers are absent.
 
 ### Requirement: Actual run-family completion
 An operation SHALL track its new primary and actual automatic-retry descendants, reporting relevant IDs and pending gaps. Unrelated historical-root branches SHALL NOT determine completion. Uncertain pending-versus-exhausted retry state SHALL remain unresolved.

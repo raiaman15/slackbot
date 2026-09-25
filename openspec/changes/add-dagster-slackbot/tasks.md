@@ -2,6 +2,8 @@
 
 Planning is complete; implementation and environment acceptance remain pending. Check a task only after its code and verification pass. Capability specs define observable behavior; `design.md` owns exact names, schemas, routes, states and defaults. Implement each requirement's WHEN/THEN scenarios at service, adapter or live-environment level. Use sanitized fixtures; do not create placeholder directories or files before needed.
 
+Start core and mock-backed UI work now. In parallel, prioritize the live adapter proof (3.3–3.4) and restart/rearm drill (4.5), since retry observability and loss of process state carry the main remaining risks. Live reads require the infrastructure path; live writes additionally require validated dispatch/recovery and explicit commissioning. Slack remains independent; its missing identities do not block core/UI development.
+
 ## 1. Shared application and contracts
 
 - [ ] 1.1 Create the minimal Python package, locked dependencies, validated settings and typed command/result/error models from the design. Verify invalid/extra fields, mixed environments and PROD mock mode fail; startup needs no disabled-transport credentials.
@@ -24,15 +26,15 @@ Planning is complete; implementation and environment acceptance remain pending. 
 
 - [ ] 3.1 Platform/application owners: provide Kyverno labels, a pullable approved image, existing ACD/ArgoCD/ExternalSecrets delivery and existing Teleport permissions, loopback port-forward and restricted bot ingress. Verify admission, pull, startup, secret injection, the specified bot 8000/Service 80 mapping, local DEV/PROD origins, probes/metrics, denied unintended bot ingress and each required egress path separately.
 - [ ] 3.2 Platform/Dagster owners: apply scoped DEV/PROD webserver ingress TCP 80 from bot namespace AND pod selectors, preserving legitimate traffic. Prove real allowed/denied workload paths; port-forwards or failed probes do not qualify.
-- [ ] 3.3 Verify inventory URL/auth, deployed location/repository, pinned 1.13.1 query/input/result/tag contracts and mesh retry behavior. Capture sanitized fixtures; disable unsupported capabilities and reconcile DEV webserver replica drift.
-- [ ] 3.4 Implement bounded GraphQL reads and faithful source snapshots. Verify partial/top-level/union errors, full selection/partition/null-empty fidelity, queue tags, op/dbt no-retry failures, worker-crash families and pending-child gaps against live DEV.
+- [ ] 3.3 Verify inventory URL/auth, deployed location/repository, pinned 1.13.1 query/input/result/tag contracts and mesh retry behavior. Capture the final audit's execution/configuration, run/filter and lineage contracts as sanitized fixtures; introspection does not prove runtime semantics. Disable unsupported capabilities and reconcile DEV webserver replica drift.
+- [ ] 3.4 Implement bounded GraphQL reads, exact private configuration snapshots and derived retry assessment. Verify scalar conversion/type/null-empty fidelity, pre-dispatch fingerprints, partial/top-level/union errors, complete selections/partitions and queue tags. Pin retry tag/event semantics; test op/dbt no-retry, worker-crash pending-child gaps, failure before decision publication, missing history, resolved parent/child markers and terminal success without a retry marker against DEV fixtures.
 
 ## 4. Confirmed execution and recovery
 
 - [ ] 4.1 Implement immutable five-minute previews and requester/session/boot-bound controls. Verify changed input/code/prior attempts, expired/replaced browser sessions, other actors, duplicate controls and stale context cannot dispatch; repeat-labelled controls bind the displayed prior-attempt history.
-- [ ] 4.2 Implement complete background discovery plus fresh targeted prechecks, provenance tags, one family slot and target serialization. Verify incomplete/aged-out scans and active/pending prior attempts across both modes block launch without claiming distributed exclusion.
+- [ ] 4.2 Implement complete background discovery plus fresh targeted prechecks, provenance tags, one family slot and target serialization. Verify incomplete/aged-out scans and active/PENDING/UNKNOWN prior attempts across both modes block launch without claiming distributed exclusion.
 - [ ] 4.3 Implement whole-run re-execution and fresh-copy submission with one consumed dispatch attempt. Verify logical inputs/current code, lineage and tags; zero graph/client/proxy mutation retries; cancel/timeout/response loss never resubmits.
-- [ ] 4.4 Implement family observation and positive reconciliation. Verify queued/pending descendants retain admission, failure versus success stays distinct from operation completion, ambiguous outcomes disarm, and delivery failure cannot affect execution.
+- [ ] 4.4 Implement family observation and positive reconciliation. Verify queued descendants and PENDING/UNKNOWN assessments hold the slot, complete NOT_PENDING plus terminal family permits release, failure versus success stays distinct from operation completion, ambiguous outcomes disarm, and delivery failure cannot affect execution.
 - [ ] 4.5 Implement authenticated operator CLI/local socket and explicit rearming. Drill first commissioning, restart, stale submitter isolation, uncertain launch/automation, rollback and evidence loss; disarm during prechecks must prevent uncommitted dispatch.
 - [ ] 4.6 Implement exact-run graceful cancellation. Verify already-terminal no-op, queued/active targets, descendant selection, cancellation-requested versus observed canceled, and uncertain termination recovery.
 - [ ] 4.7 Implement schedule/sensor start/stop with per-target ordering. Verify already-desired no-op, late conflicting requests, cursor preservation and warnings about future runs outside the bot slot.

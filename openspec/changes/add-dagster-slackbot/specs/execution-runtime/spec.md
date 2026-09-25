@@ -100,7 +100,7 @@ Tags SHALL support discovery only. Reconciliation SHALL validate scope, job, inp
 - **THEN** the bot SHALL track that family without treating tag count as proof of duplicates or replaying any request.
 
 ### Requirement: Conclusive family completion
-The slot SHALL remain occupied through queueing, execution, cancellation, automatic retry gaps, and uncertainty. Release SHALL require terminal primary/descendants and authoritative evidence of no pending retry, or sufficient controlled operator incident resolution. Unavailable retry observability SHALL block new launches. Queued runs SHALL retain coordinator-policy tags and SHALL NOT be replaced merely because execution has not started.
+The slot SHALL remain occupied through queueing, execution, cancellation, automatic retry gaps, and uncertainty. Release SHALL require terminal primary/descendants and the adapter's complete NOT_PENDING retry assessment, or sufficient controlled operator incident resolution. UNKNOWN assessments and unavailable retry observability SHALL block new launches. Queued runs SHALL retain coordinator-policy tags and SHALL NOT be replaced merely because execution has not started.
 
 #### Scenario: Parent is failed but retry is pending
 - **WHEN** a child has not yet appeared or exhaustion cannot be established

@@ -1,8 +1,8 @@
-# Infrastructure audit — 24 September 2026
+# Infrastructure audit — 24–25 September 2026
 
 ## Evidence and scope
 
-Consolidated from the original seven photographs (1719–1725) and the six-photo v2 follow-up (1726–1731) of an internal `environment-audit.md`. The audits report Kubernetes/GraphQL inspection and publisher-source review; v2 also attempted and deleted an ephemeral probe. V2 confirms earlier spec fixes, not completion of their infrastructure tasks. **These are reported observations, not live checks repeated during this documentation update.** Infrastructure may drift; implementation must reconfirm its actual workload path.
+Consolidated from photographs of an internal `environment-audit.md`: the original audit (1719–1725), v2 (1726–1731) and the final 25 September review (1740–1745). The audits report Kubernetes/GraphQL inspection and publisher-source review; v2 also attempted and deleted an ephemeral probe. The final review checks the database-free, LangGraph/admin-panel design and adds schema evidence; it does not complete deployment tasks. **These are reported observations, not live checks repeated during this documentation update.** Infrastructure may drift; implementation must reconfirm its actual workload path.
 
 This public copy omits company cluster names, namespaces, database/registry/Teleport hosts and Slack channel names. Exact identifiers remain in the source audit and controlled deployment configuration; this public plan does not depend on a separate unpublished companion file. Deployers supply and reconfirm current values through controlled environment configuration. No photos or private inventory belong in this public repository.
 
@@ -18,6 +18,9 @@ This public copy omits company cluster names, namespaces, database/registry/Tele
 | 1726–1727.jpg | V2 baseline, webserver binding/endpoints, full reported queue limits and admission policies |
 | 1728–1729.jpg | Prior findings covered in specs; G1–G6 owner/evidence gaps remain |
 | 1730–1731.jpg | Residual risks, negative cross-namespace timeout, unsuccessful ephemeral probe and cleanup |
+| 1740–1741.jpg | Duplicate final-review baseline; existing version, topology and policies unchanged |
+| 1742–1743.jpg | Execution inputs, run/filter/lineage evidence and derived retry-state finding N1 |
+| 1744–1745.jpg | Remaining owner gates, configuration fidelity, verification record and implementation recommendation |
 
 ## Reported environment baseline
 
@@ -73,6 +76,24 @@ Supported mutation names reported: `launchRun`, `launchRunReexecution`, `termina
 
 The existing failure sensor uses `dagster-slack` 1.13.1 and a custom error section truncated to 3,000 characters. The button URL is the primary identity source; structured Dagster events supply fuller bounded evidence. Publisher bot/app IDs, workspace/channel IDs and channel types still require a real Slack payload. Human access remains approved Teleport port-forwarding; a localhost button is not a generally usable employee link.
 
+### Final GraphQL inventory
+
+The final review reports these 1.13.1 contracts introspected in both environments. This inventory guides pinned fixtures; it does not establish runtime behavior, field completeness or selection fidelity.
+
+| Surface | Reported contract / implementation consequence |
+|---|---|
+| Launch | `launchRun(executionParams: ExecutionParams!)`; `launchRunReexecution` accepts `executionParams` and `reexecutionParams`. Verify valid combinations and result unions before use. |
+| Execution inputs | `ExecutionParams`: required `selector`, plus `runConfigData`, `mode`, `executionMetadata`, `stepKeys`, `preset`. Metadata supports flat string key/value tags, `rootRunId`, `parentRunId`; no launch idempotency input reported. |
+| Re-execution strategies | `FROM_ASSET_FAILURE`, `FROM_FAILURE`, `ALL_STEPS` reported. Their presence does not expand the approved whole-run/fresh-copy scope. |
+| Run evidence | IDs/status/tags, parent/root, job/mode, `runConfigYaml`, asset/check/op/step selections, creation/update/start/end times, termination/re-execution permission fields. Preserve selection distinctions and validate actual field/input mappings. |
+| Discovery | `RunsFilter` supports IDs, pipeline name, tags, statuses, snapshot, mode and created/updated bounds. `runGroupOrError` returns RunGroup / RunGroupNotFoundError / PythonError; errors are not empty lineage. |
+| Retry observability | Inspected Run/RunStatsSnapshot expose no first-class retry-pending/count field; inspected event types expose no dedicated retry-pending event. Retry state must be derived from version-tested tags/events, effective policy and actual descendants. |
+| Instance / statistics | Instance exposes launcher, daemon health, concurrency and queue configuration. Stats expose step counts and queue/launch/start/end times; neither is a substitute for complete retry evidence. |
+
+**N1 — derived retry state:** missing a first-class field does not mean run tags or event history contain no retry evidence. Use the design's PENDING / NOT_PENDING / UNKNOWN assessment. Absence of required decision metadata or child runs, a quiet interval or budget arithmetic alone cannot prove exhaustion; successful members need no marker when verified semantics make it inapplicable. Verify both failure classes, decision-publication gaps and resolved parent/child markers before live retry enablement; ambiguity keeps admission closed.
+
+**Configuration fidelity:** `runConfigData` is an opaque scalar. Retain the exact source `runConfigYaml` response privately, verify the scalar's accepted representation and preserve logical types/references when submitting. Do not rebuild inputs from summaries or redacted previews. Opacity to introspection does not establish that Dagster skips semantic configuration validation. Changed current definitions still require normal validation.
+
 ### Delivery conventions
 
 The reported platform uses ACD/ArgoCD, environment-specific image repositories/tags, and ExternalSecrets backed by AWS Secrets Manager. V2 adds a concrete deployment gate: satisfy Kyverno labels and registry rules, then prove the chosen image actually pulls and starts. Admission success alone is insufficient. Companion applications already use separate namespaces and private Services. Follow that pattern for the bot; the photographed internal bot project has example pipeline templates, not evidence of a deployed bot. Render and reconcile the real pipeline/manifests before rollout. Secret values must not enter this repository.
@@ -88,18 +109,18 @@ The reported platform uses ACD/ArgoCD, environment-specific image repositories/t
 | Data/job owners | Redaction/retention approval, launch presets and asset mappings |
 | Application/platform owners | Kyverno-compliant/pullable image, delivery manifests, secret rotation, independent alarms, Teleport/port-forward access restrictions and DEV mock isolation, human access instructions and end-to-end acceptance |
 
-Audit observations close identification questions; they do not complete implementation tasks. The read-only rollout still requires working connectivity, authenticated Slack policy and approved data handling. Mutations additionally require complete GraphQL evidence, validated in-memory dispatch/restart behavior, operator commissioning and explicit enablement. Data-owner approvals and behavioral fixtures remain open unless separately evidenced; the v2 gap list does not itself close them.
+Audit observations close identification questions; they do not complete implementation tasks. The read-only rollout still requires working connectivity and approved data handling; Slack additionally requires its authenticated workspace/channel policy. Mutations require complete GraphQL evidence, validated in-memory dispatch/restart behavior, operator commissioning and explicit enablement. Data-owner approvals and behavioral fixtures remain open unless separately evidenced; an audit gap list does not itself close them.
 
 ## Verification record and implementation trace
 
-The 25 September specification re-audit reconciles these photo findings with the current database-free, direct-access UI design. It adds implementation decisions and acceptance checks, not new observations of the private clusters.
+The 25 September final review reports reauthenticated DEV/PROD Teleport profiles, read-only topology/query/introspection checks and two temporary port-forwards subsequently closed. Its baseline remains consistent with the database-free, direct-access UI design. N1 and configuration fidelity are incorporated in the existing adapter, capability and task documents; no new architecture or bot database is needed. This documentation update performs no private-cluster checks.
 
 V1 reports read-only topology/configuration and GraphQL checks through temporary port-forwards, subsequently closed. V2 additionally reports a cross-namespace query timeout from an existing DEV companion pod without restrictive egress, consistent with the still-unapplied Dagster ingress allowance. This is negative DEV evidence, not successful bot access or a PROD workload test.
 
 The attempted same-namespace ephemeral probe encountered admission requirements, then image-pull failure, and was deleted. Healthy endpoints and port-forward queries do not substitute for its missing positive workload test. The original commands contain placeholders/abbreviated GraphQL and are procedure outlines, not executable fixtures. No cluster operations were performed by this documentation update.
 
-V2 marks F1–F10 addressed in specifications while G1 policy remediation, G2 mesh confirmation, G3 replica drift and G5 Slack identities remain operational work. G4 remains an unconfirmed Dagster storage dependency risk; G6 bot database planning is superseded above. The blanket v2 heading “all confirmed live” does not resolve its explicitly inferred engine/mesh details. Local-copy README hygiene F11 does not justify renaming this repository's valid change/config paths.
+V2 marks F1–F10 addressed in specifications. The final review still leaves G1 policy remediation, G2 mesh confirmation, G3 replica drift and G5 Slack identities as operational work. G4 remains an unconfirmed Dagster storage dependency risk; G6 bot database planning is closed by the no-database decision. The audits' baseline headings do not resolve explicitly inferred engine/mesh details or prove bot workload connectivity. Local-copy README hygiene F11 does not justify renaming this repository's valid change/config paths.
 
-Implementation mapping: task groups 1–2 deliver independent core/admin UI; group 3 closes admission/network/GraphQL contracts; group 4 delivers no-database execution/recovery; group 5 owns Slack integration; group 6 verifies PROD. Behavioral requirements are in the four [specs](specs/); architecture is in [design](design.md).
+**Ready to begin implementation.** Task groups 1–2 deliver independent core/admin UI while group 3 closes admission/network/GraphQL contracts. Prove derived retry state, configuration fidelity and restart/rearm behavior early; group 4 then enables validated execution, group 5 independently adds Slack, and group 6 qualifies PROD. This is not production readiness or an exactly-once guarantee. Behavioral requirements are in the four [specs](specs/); architecture is in [design](design.md).
 
 Platform semantics reference: [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/) and [Dagster run retries](https://docs.dagster.io/deployment/execution/run-retries). Public documentation supports interpretation, not proof of the private deployment or its pinned schema.
